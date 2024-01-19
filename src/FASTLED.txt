@@ -1,0 +1,40 @@
+ fill_solid( leds[1], NUM_LEDS_PER_STRIP,CRGB::White);
+    
+     if (pattern1Index == 0)
+    {
+      FastLED.setCorrection(TypicalSMD5050);
+      leds[1][0] = CRGB::Red;
+    }
+    else if (pattern1Index == 1)
+    {
+      FastLED.setCorrection(TypicalLEDStrip);
+      leds[1][0] = CRGB::Blue;
+    }
+    else if (pattern1Index == 2)
+    {
+      FastLED.setCorrection(TypicalPixelString);
+      leds[1][0] = CRGB::CRGB::Green;
+    }
+    else if (pattern1Index == 3)
+    {
+      FastLED.setCorrection(UncorrectedColor);
+      leds[1][0] = CRGB::CRGB::Yellow;
+    }
+    else if (pattern1Index == 4)
+    {
+      FastLED.setCorrection(UncorrectedTemperature);
+      leds[1][0] = CRGB::CRGB::Magenta;
+    }
+
+  FastLED.show();
+  pattern1Index ++;
+
+
+      if (pattern1Index >= 5)
+      {
+        pattern1Index = 0;
+        //FastLED.clear();
+      }
+
+
+      
