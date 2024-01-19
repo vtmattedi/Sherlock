@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sherlock</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        #color-picker {
+            margin-top: 20px;
+        }
+
+        #animation-slider {
+            width: 80%;
+            margin-top: 20px;
+        }
+
+        #color-box {
+            width: 100px;
+            height: 100px;
+            margin: 20px auto;
+            transition: background-color 0.5s ease, opacity 0.5s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>I am SherLOCKED</h1>
+
+    <label for="color-picker">Choose a color:</label>
+    <input type="color" id="color-picker">
+
+    <p>Selected Color: <span id="selected-color">#000000</span></p>
+
+    <label for="animation-slider">Speed:</label>
+    <input type="range" id="animation-slider" min="10" max="1000" value="500" onchange="sendSpeed(this.value)">
+
+    <p>Choose Animation:</p>
+    <label for="fade-toggle">Fade</label>
+    <input type="radio" id="fade-toggle" name="animation-type" value="fade" checked>
+    <label for="blink-toggle">Blink</label>
+    <input type="radio" id="blink-toggle" name="animation-type" value="blink">
+    <label for="none-toggle">None</label>
+    <input type="radio" id="none-toggle" name="animation-type" value="none">
+    <select id="LedAnimations" onchange="sendAnimation()">
+    </select>
+    <div>
+        <button onclick="sendMov(1)">Fowards</button>
+        <button onclick="sendMov(0)">Stop</button>
+        <button onclick="sendMov(-1)">Backwards</button>
+    </div>
+    <div id="color-box"></div>
+
+    <script>
+        function fetchData() {
+            fetch('/general?get-modes=1')
+                .then(response => response.text())
+                .then(data => {
+                    var list = [];
+                    var pairs = data.split("+");
+                    pairs.forEach(pair => {
+                        if (pair != "") {
+                            var obj = {
+                                'name': pair.split(",")[0],
+                                'value': pair.split(",")[1]
+                            };
+                            list.push(obj);
+                        }
+
+                    });
+                    setSensors(list);
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                });
+        }
+        function setSensors(sensorlist) {
+
+            const topicDiv = document.getElementById("LedAnimations");
+            topicDiv.innerHTML = "";
+            sensorlist.forEach(sensor => {
+                if (sensor.value != "") {
+                    var opt = document.createElement('option');
+                    opt.value = sensor.value;
+                    opt.innerHTML = sensor.name;
+                    topicDiv.appendChild(opt);
+                }
+            });
+
+
+        }
+        // Attach the fetchData function to the window.onload event
+        document.addEventListener('DOMContentLoaded', fetchData);
+        const colorPicker = document.getElementById('color-picker');
+        const selectedColor = document.getElementById('selected-color');
+        const animationSlider = document.getElementById('animation-slider');
+        const fadeToggle = document.getElementById('fade-toggle');
+        const blinkToggle = document.getElementById('blink-toggle');
+        const noneToggle = document.getElementById('none-toggle');
+        const colorBox = document.getElementById('color-box');
+
+        colorPicker.addEventListener('input', () => {
+            sendColor();
+            const color = colorPicker.value;
+            selectedColor.textContent = color;
+            selectedColor.style.color = color;
+            colorBox.style.backgroundColor = color;
+        });
+
+        function fadeOut() {
+            colorBox.style.opacity = 0;
+        }
+
+        function fadeIn() {
+            colorBox.style.opacity = 1;
+        }
+
+        let animationInterval = null;
+
+        function startAnimation() {
+
+            const animationType = document.querySelector('input[name="animation-type"]:checked').value;
+            if (animationType === 'fade') {
+                sendOpt(2);
+                clearInterval(animationInterval);
+                animationInterval = setInterval(() => {
+                    fadeOut();
+                    setTimeout(fadeIn, animationSlider.value / 2);
+                }, animationSlider.value);
+            } else if (animationType === 'blink') {
+                sendOpt(1);
+                clearInterval(animationInterval);
+                animationInterval = setInterval(() => {
+                    colorBox.style.backgroundColor = 'transparent';
+                    setTimeout(() => {
+                        colorBox.style.backgroundColor = colorPicker.value;
+                    }, animationSlider.value / 2);
+                }, animationSlider.value * 2);
+            }
+            else {
+                sendOpt(0);
+                clearInterval(animationInterval);
+            }
+        }
+
+        function sendColor() {
+            const color = colorPicker.value;
+            var str = `/general?color=${color.substr(1)}`;
+            console.log(str);
+            fetch(str).then(response => response.text())
+                .then(data => {
+                    console.log(data)
+                })
+
+        }
+        function sendAnimation() {
+            const selectElement = document.getElementById("LedAnimations");
+
+            // Get the selected <option> element
+            const selectedOption = selectElement.options[selectElement.selectedIndex];
+
+            // Get the value of the selected <option>
+            const selectedValue = selectedOption.value;
+            var str = `/general?animation=${selectedValue}`;
+            console.log(str);
+            fetch(str).then(response => response.text())
+                .then(data => {
+                    console.log(data)
+                })
+
+        }
+        function sendMov(value) {
+            var str = `/general?dir=${value}`;
+            console.log(str);
+            fetch(str).then(response => response.text())
+                .then(data => {
+                    console.log(data)
+                })
+        }
+        function sendOpt(value) {
+            var str = `/general?opt=${value}`;
+            console.log(str);
+            fetch(str).then(response => response.text())
+                .then(data => {
+                    console.log(data)
+                })
+        }
+        function mapValue(value, fromMin, fromMax, toMin, toMax) {
+            // First, normalize the value from the original range to a 0-1 range
+            const normalizedValue = (value - fromMin) / (fromMax - fromMin);
+
+            // Then, map the normalized value to the new range
+            const mappedValue = normalizedValue * (toMax - toMin) + toMin;
+
+            return mappedValue;
+        }
+        function sendSpeed(value) {
+            value = mapValue(value, 15, 1000, 1000, 15);
+            var str = `/general?speed=${value}`;
+            console.log(str);
+            fetch(str).then(response => response.text())
+                .then(data => {
+                    console.log(data)
+                })
+        }
+        fadeToggle.addEventListener('change', startAnimation);
+        blinkToggle.addEventListener('change', startAnimation);
+        noneToggle.addEventListener('change', startAnimation);
+    </script>
+</body>
+
+</html>

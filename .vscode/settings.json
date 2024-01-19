@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "algorithm": "cpp",
+        "cmath": "cpp",
+        "functional": "cpp"
+    },
+    "cmake.sourceDirectory": "D:/Projects/PIO/Sherlock/.pio/libdeps/esp32doit-devkit-v1/Unity"
+}
