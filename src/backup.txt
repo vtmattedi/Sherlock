@@ -179,7 +179,7 @@ void startOTA()
     // exibe mensagem junto ao tipo de gravação
     Serial.println("Start updating " + type);
     control_variables.updating = true;
-     FastLED.setBrightness(0xff);
+    FastLED.setBrightness(0xff);
 }
 // exibe mensagem
 void endOTA()
@@ -188,14 +188,13 @@ void endOTA()
     ledController.setMode(Solid, CRGB::Green);
     ledController.setInterval(50);
     control_variables.updating = false;
-   
 }
 // exibe progresso em porcentagem
 void progressOTA(unsigned int progress, unsigned int total)
 {
     byte update_progress = round((float)progress / total * 100);
     Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
-    ledController.showProgBar(update_progress, 10000, CRGB::Red,CRGB::Blue);
+    ledController.showProgBar(update_progress, 10000, CRGB::Red, CRGB::Blue);
 }
 
 void errorOTA(ota_error_t error)
@@ -248,6 +247,143 @@ void manual(int start, int finish = -1)
     FastLED.show();
 }
 
+struct command_result
+{
+    bool result = false;
+    String response = "";
+};
+
+command_result handleCommand(String message)
+{
+    char *delimiter = " ";
+    String extra_arg = "";
+    command_result result;
+    String response = "";
+    bool resolve = true;
+    String command = "";
+    String args[5] = {"", "", "", "", ""};
+
+    String current_string = "";
+
+    int index = 0;
+    int last_index = 0;
+    // gets command and args using the delimiters
+    for (size_t i = 0; index >= 0; i++)
+    {
+        current_string = "";
+        index = message.indexOf(delimiter, last_index + 1);
+
+        if (last_index > 0)
+            last_index += strlen(delimiter);
+
+        if (index == -1)
+            current_string = message.substring(last_index);
+        else if (index < message.length())
+            current_string = message.substring(last_index, index);
+
+        last_index = index;
+
+        if (i == 0)
+        {
+            current_string.toUpperCase();
+            command = current_string;
+        }
+        else if (i < 6)
+            args[i - 1] = current_string;
+    }
+
+    // process the command
+    command.toUpperCase();
+    if (command == "Help" || command == "help" || command == "H" || command == "h")
+    {
+        // Do documentation
+        response += ("Welcome to NightMare Home Systems ©\nThis is a ESP32 Module and it can answer to the following commands:\n");
+        response += ("Quick obs.: the character int [19] or char () is ignored when recieved for facilitating reasons.\n");
+        response += ("obs.: [param]* = required parameter, [param] = optional parameter, {param} = optional parameter in any position after required parameters.\n");
+        response += ("obs.: the command is normalized to upper case.\n");
+
+        response += "REQ_CLIENTS                                                      > Request the clients connected to the tcp server\n";
+        response += "REQ_FILE [file]*                                                 > Request a specific file (read as ASCII)\n";
+        response += "REQ_FILES                                                        > Request Available Files \n";
+        response += "REQ_LOG                                                          > requests a software reset.\n";
+        response += "PREF [Preference] [New Value]                                    > Change the selected user preferece to the new value (always an int_32t).\n";
+        response += "GET_PREFS                                                        > Gets the user preferences, the key to be used with PREF and their current values.\n";
+        response += "HWINFO                                                           > requests the hardware conections of this board.\n";
+        response += "READ_PIN [pin]* [analog?] [#n reads] [SIPO_Enable index]         > Reads Data from one of the pins. (use -A for Analog read)\n";
+        response += "READ_MUX [Index]* [#n reads] [SIPO_Enable index] {digital?}      > Reads the value on one of the ports of the MUX. (use -D for digital read)\n";
+        response += "WRITE_SIPO [DATA]* [Data format(HEX)(BIN)]                       > Writes a specific data to the SIPO.\n";
+        response += "GET_IP                                                           > Gets current IP.\n";
+        response += "PUMP_INFO                                                        > Gets the info for when pump was last automaticaly triggered and next scheduled time.\n";
+        response += "TRIGGER_US [#n reads]                                            > Reads the value from the Ultrasonic Sensor.\n";
+    }
+
+    else
+        resolve = false;
+
+    result.response = response;
+    result.result = resolve;
+
+    Serial.printf("message = %s | command = %s | args[0] = %s | args[1] = %s | args[2] = %s |\n", message.c_str(), command.c_str(), args[0].c_str(), args[1].c_str(), args[2].c_str());
+
+    return result;
+}
+
+String HandleMsg(String msg, byte index)
+{
+#ifdef DEBUG
+    Serial.print("[");
+    Serial.print(tcpServer.clients[index].client->remoteIP());
+    Serial.printf("]:%d ", tcpServer.clients[index].client->remotePort());
+    Serial.print((char)39);
+    Serial.print(msg);
+    Serial.println((char)39);
+#endif
+
+    String response = "";
+
+    if (msg[0] == '@')
+    {
+        if (msg[1] == '@')
+        {
+            int pin = atoi(msg.substring(2).c_str());
+            response = "Reading [Analog] from pin [";
+            response += pin;
+            response += "]. ||";
+            if (pin == 33)
+                digitalWrite(27, HIGH);
+            for (size_t i = 0; i < 10; i++)
+            {
+                response += " {";
+                response += analogRead(pin);
+                response += "}";
+            }
+
+            if (pin == 33)
+                digitalWrite(27, LOW);
+        }
+        else
+        {
+            int pin = atoi(msg.substring(1).c_str());
+            response = "Reading [DIGITAL] from pin [";
+            response += pin;
+            response += "]. || {";
+            response += digitalRead(pin);
+            response += "}";
+        }
+    }
+    else if (msg[0] == '!')
+    {
+        command_result result = handleCommand(msg.substring(1));
+        // response = "[";
+        // response += result.result;
+        // response += "] ";
+        response += result.response;
+    }
+    else
+        response += "M;ACK;";
+    return response;
+}
+
 String HandleTcpClientMessage(String msg)
 {
     int index = msg.indexOf(",");
@@ -295,7 +431,7 @@ String HandleTcpServertMessage(String msg, byte index)
     }
     else if (msg == "s")
     {
-        ledController.setDirection (direction::stop);
+        ledController.setDirection(direction::stop);
         return "stop";
     }
     else if (msg == "debug")
@@ -557,7 +693,7 @@ void handleGeneral()
     if (server.hasArg("opt"))
     {
         int opt = atoi(server.arg("opt").c_str());
-       // ledController.setEffect(static_cast<effect>(opt));
+        // ledController.setEffect(static_cast<effect>(opt));
         server.send(200, "text/plain", String(opt));
     }
     if (server.hasArg("get-modes"))
@@ -945,11 +1081,12 @@ void tcp_reconnect()
 
 void setup()
 {
+     Serial.begin(115200);
     pinMode(ONE_WIRE_BUS, INPUT);
     pinMode(LED_STRIP_PIN, OUTPUT);
     pinMode(2, OUTPUT);
     FastLED.addLeds<WS2812, LED_STRIP_PIN, GRB>(leds, LED_STRIP_SIZE); // GRB ordering is typical
-    ledController.SetupInfo(leds,LED_STRIP_SIZE,6,101);
+    ledController.SetupInfo(leds, LED_STRIP_SIZE, 6, 101);
     FastLED.setMaxPowerInVoltsAndMilliamps(5, 2000);
     FastLED.setBrightness(control_variables.on_brightness);
     control_variables.current_light_state = true;
@@ -957,7 +1094,7 @@ void setup()
     Serial.printf("Fs %s\n", control_variables.LittleFS_Mounted ? "Mounted." : "Failed.");
     Configuration.LoadFromFile();
 
-    Serial.begin(115200);
+   
 
     tempSensor.begin();
     tempSensor.getAddress(sensorAddress, 0);
@@ -1025,7 +1162,7 @@ void setup()
     }
 
     ledController.setMode(Solid, CRGB::Green, CRGB::BlanchedAlmond);
-    //ledController.setEffect(blink);
+    // ledController.setEffect(blink);
     ledController.setInterval(150);
 
     if (!notconnected)
@@ -1062,7 +1199,9 @@ void setup()
         control_variables.boot_time = millis();
 
         // Starts the TCP server (used for local debug mostly)
-        tcpServer.setMessageHandler(HandleTcpServertMessage);
+        // tcpServer.setMessageHandler(HandleTcpServertMessage);
+
+        tcpServer.setMessageHandler(HandleMsg);
         tcpServer.begin();
 
         // Starts the TCP Client (used for local integration)

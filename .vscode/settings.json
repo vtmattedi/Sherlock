@@ -2,7 +2,19 @@
     "files.associations": {
         "algorithm": "cpp",
         "cmath": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "type_traits": "cpp",
+        "array": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp",
+        "utility": "cpp",
+        "deque": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "unordered_set": "cpp",
+        "vector": "cpp",
+        "random": "cpp",
+        "new": "cpp"
     },
     "cmake.sourceDirectory": "D:/Projects/PIO/Sherlock/.pio/libdeps/esp32doit-devkit-v1/Unity"
 }
