@@ -21,7 +21,6 @@ StaticJsonDocument<256> DocJson;
 #define DEVICE_NAME "Sherlock"
 #define SERVER_HOST "Feymann"
 #define FASTLED_INTERNAL
-#define EXTERNAL_LDR_TOPIC "Adler/sensors/ldr"
 #define LDR_THERSHHOLD 3800
 #define LDR_ON_LOW true
 NightMareTCPServer tcpServer(100);
@@ -56,466 +55,9 @@ PubSubClient HiveMQ(hive_client);
 #define LED_STRIP_SIZE 102
 CRGB leds[LED_STRIP_SIZE] = {0};
 
-enum function
-{
-    Solid,
-    ShowHandles,
-    lightShow,
-    randomLights,
-    rainbow,
-    laser
-};
-
-function getFnbyName(String fnName)
-{
-    if (fnName == "Solid")
-        return Solid;
-    if (fnName == "ShowHandles")
-        return ShowHandles;
-    if (fnName == "lightShow")
-        return lightShow;
-    if (fnName == "randomLights")
-        return randomLights;
-    if (fnName == "rainbow")
-        return rainbow;
-    if (fnName == "laser")
-        return laser;
-    return Solid;
-}
-
-String getfnName(int fnValue)
-{
-    switch (fnValue)
-    {
-    case Solid:
-        return "Solid";
-    case ShowHandles:
-        return "ShowHandles";
-    case lightShow:
-        return "lightShow";
-    case randomLights:
-        return "randomLights";
-    case rainbow:
-        return "rainbow";
-    case laser:
-        return "laser";
-    default:
-        return "Unknown";
-    }
-}
-
-String getFns()
-{
-    String enumString = "";
-    bool done = false;
-    for (int i = 0; !done; i++)
-    {
-        String current_fn = getfnName(i);
-        if (current_fn == "Unknown")
-            done = true;
-        else
-        {
-            enumString += current_fn;
-            enumString += ",";
-            enumString += i;
-            enumString += "+";
-        }
-    }
-    return enumString;
-}
-
-enum direction
-{
-    backward = -1,
-    stop = 0,
-    foward = 1,
-};
-
-direction opposite(direction currentDirection)
-{
-    switch (currentDirection)
-    {
-    case backward:
-        return foward;
-    case foward:
-        return backward;
-    default:
-        return stop;
-    }
-}
-
-enum option
-{
-    none,
-    blink,
-    fade,
-};
-
-struct LedHandler
-{
-#define NUM_LEDS 102
-private:
-    unsigned long _lastMillis = 0;
-    int _Index1 = 0;
-    int _Index2 = 0;
-    int _start_index = 0;
-    int _end_index = NUM_LEDS;
-    int _num_of_leds = NUM_LEDS;
-    int _interval = 25;
-    bool _helperFlag = false;
-    int _helperInt0 = 0;
-    int _helperInt1 = 0;
-    byte _helperByte = 0;
-    bool _halt = false;
-    bool _finite = false;
-    bool _show = true;
-    uint32_t _finite_timestamp = 0;
-
-    int _old_interval = 25;
-    CRGB _old_baseColor = CRGB::Red;
-    CRGB _old_baseColor2 = CRGB::Blue;
-    function _old_fn = function::Solid;
-    direction _old_movement = direction::stop;
-    option _old_options = option::none;
-
-public:
-    function current_fn = function::Solid;
-    CRGB baseColor = CRGB::GreenYellow;
-    CRGB baseColor2 = CRGB::Blue;
-    direction movement = direction::stop;
-    option options = option::none;
-    void setBoundries(int start, int finish)
-    {
-        for (size_t i = 0; i < NUM_LEDS; i++)
-        {
-            leds[i] = 0;
-        }
-
-        if (finish < start)
-        {
-            int middleman = finish;
-            finish = start;
-            start = middleman;
-        }
-        if (start < 0)
-            start = 0;
-        if (finish >= NUM_LEDS)
-            finish = NUM_LEDS - 1;
-
-        _start_index = start;
-        _end_index = finish;
-        _num_of_leds = _end_index - _start_index + 1;
-    }
-    void setInterval(int newInterval, int beatsPerMinute = 0)
-    {
-        if (newInterval < 10)
-        {
-            newInterval = 10;
-        }
-        _interval = newInterval;
-        Serial.printf("new interval: %d\n", newInterval);
-    }
-    void setFinite(uint32_t time_to_finish_ms)
-    {
-        _finite = true;
-        _finite_timestamp = millis() + time_to_finish_ms;
-    }
-    void setOption(option newOption)
-    {
-        options = newOption;
-    }
-    void setDirection(direction newDirection)
-    {
-        movement = newDirection;
-    }
-    void goToLastMode()
-    {
-        direction temp_mov = _old_movement;
-        option temp_opt = _old_options;
-
-        setMode(_old_fn, _old_baseColor, _old_baseColor2);
-        setDirection(temp_mov);
-        setOption(_old_options);
-    }
-    void setMode(function new_fn)
-    {
-        setMode(new_fn, baseColor);
-    }
-    void setMode(function new_fn, CRGB newColor1, CRGB newColor2 = CRGB::Black)
-    {
-        _halt = false;
-        _old_fn = current_fn;
-        _old_baseColor = baseColor;
-        _old_baseColor2 = baseColor2;
-        _old_movement = movement;
-        _old_options = options;
-        options = none;
-        movement = stop;
-        current_fn = new_fn;
-        baseColor = newColor1;
-        baseColor2 = newColor2;
-        _lastMillis = 0;
-        _helperFlag = false;
-        _helperInt0 = 0;
-        _helperInt1 = 0;
-        _helperByte = 0;
-        _show = true;
-        FastLED.clear();
-    }
-    void showProgbar(byte percentage, CRGB ValueColor = CRGB::DarkCyan, CRGB BackColor = CRGB::DarkGoldenrod)
-    {
-        _halt = true;
-        byte percentIndex = round(percentage * _end_index / 100);
-        for (size_t i = _start_index; i <= _end_index; i++)
-        {
-            if (i <= percentIndex)
-                leds[i] = ValueColor;
-            else
-                leds[i] = BackColor;
-        }
-        FastLED.show();
-    }
-
-    void partialMove(direction dir, int startIndex, int endIndex, bool loop = true)
-    {
-        // Serial.printf("Start P.M, d = %d, s = %d, e = %d,\n", dir, startIndex, endIndex);
-        // Serial.println("");
-        if (dir == foward)
-        {
-            CRGB first = leds[startIndex];
-
-            for (size_t i = startIndex; i < endIndex; i++)
-            {
-                // Serial.printf("[%d] - > [%d]\n", i, i + 1);
-                leds[i] = leds[i + 1];
-            }
-            if (loop)
-                leds[endIndex] = first;
-        }
-        else if (dir == backward)
-        {
-            CRGB last = leds[endIndex];
-
-            for (size_t i = 0; i < endIndex - startIndex; i++)
-            {
-                // Serial.printf("[%d] - > [%d]\n", endIndex - i, endIndex - (i + 1));
-                leds[endIndex - i] = leds[endIndex - (i + 1)];
-            }
-            if (loop)
-                leds[startIndex] = last;
-        }
-
-        return;
-    }
-    void move(direction dir, bool loop = true)
-    {
-        // partialMove(dir, _start_index, _end_index, loop);
-        // return;
-        if (dir == foward)
-        {
-            CRGB first = leds[_start_index];
-
-            for (size_t i = _start_index; i < _end_index; i++)
-            {
-                leds[i] = leds[i + 1];
-            }
-            if (loop)
-                leds[_end_index] = first;
-        }
-        else if (dir == backward)
-        {
-            CRGB first = leds[_end_index];
-
-            for (size_t i = 0; i < _end_index - _start_index; i++)
-            {
-                leds[_end_index - i] = leds[_end_index - (i + 1)];
-            }
-            if (loop)
-                leds[_start_index] = first;
-        }
-    }
-
-    uint32_t getHex(CRGB rgb)
-    {
-        return rgb.red * 0x10000 + rgb.green * 0x100 + rgb.blue;
-    }
-    void run()
-    {
-        if (millis() >= _finite_timestamp && _finite)
-            goToLastMode();
-        if (millis() < _lastMillis + _interval || _halt)
-            return;
-        _lastMillis = millis();
-        if (current_fn == Solid)
-        {
-            if (options == fade)
-            {
-                _show = true;
-                if (_helperInt0 == 0)
-                {
-                    for (size_t i = _start_index; i < _end_index; i++)
-                    {
-                        leds[i] = baseColor;
-                    }
-                }
-                else
-                {
-                    fadeToBlackBy(leds, NUM_LEDS, 16);
-                }
-                _helperInt0++;
-                if (_helperInt0 == 16)
-                    _helperInt0 = 0;
-            }
-            else if (options == blink)
-            {
-                _show = true;
-                _helperFlag = !_helperFlag;
-                for (size_t i = _start_index; i < _end_index; i++)
-                {
-                    leds[i] = _helperFlag ? baseColor : baseColor2;
-                }
-            }
-            else
-            {
-                _show = false;
-                for (size_t i = _start_index; i < _end_index; i++)
-                {
-                    if (leds[i] != baseColor)
-                    {
-                        leds[i] = baseColor;
-                        _show = true;
-                    }
-                }
-            }
-        }
-        else if (current_fn == lightShow)
-        {
-            fadeToBlackBy(leds, _end_index, 32);
-            leds[_start_index + _helperInt0] = _helperFlag ? baseColor : baseColor2;
-            leds[_end_index - _helperInt0] = _helperFlag ? baseColor2 : baseColor;
-            blur1d(leds, _end_index, 64);
-            _helperInt0++;
-            if (_start_index + _helperInt0 > _end_index)
-            {
-                _helperInt0 = 0;
-                _helperFlag = !_helperFlag;
-                if (_helperFlag = true)
-                {
-                    baseColor = CHSV(random8(), 255, 255);
-                    baseColor2 = CHSV(random8(), 255, 255);
-                }
-            }
-        }
-        else if (current_fn == ShowHandles)
-        {
-            fadeToBlackBy(leds, _num_of_leds, 8);
-            _helperInt0++;
-            if (_helperInt0 >= 8)
-                move(movement);
-            if (_helperInt0 >= 40)
-            {
-                uint8_t newhue = random8();
-                _helperInt0 = 0;
-                for (size_t i = 0; i < 10; i++)
-                {
-                    leds[19 + i] = CHSV(newhue, 255, 255);
-
-                    leds[50 + i] = CHSV(newhue + 85, 255, 255);
-
-                    leds[83 + i] = CHSV(newhue + 170, 255, 255);
-                }
-            }
-        }
-        else if (current_fn == randomLights)
-        {
-            fadeToBlackBy(leds, _num_of_leds, 8);
-            move(movement);
-            leds[random(7, 102)] = CHSV(random8(), 255, 255);
-        }
-        else if (current_fn == rainbow)
-        {
-            int midIndex = (_end_index - _start_index) / 2;
-            partialMove(movement, _start_index, midIndex);
-            partialMove(opposite(movement), midIndex + 1, _end_index);
-            if (_helperInt0 == 0)
-            {
-                int8_t startHue = random8();
-                for (size_t i = _start_index; i <= _end_index; i++)
-                {
-                    leds[i] = CHSV(startHue + i * 4, 255, 255);
-                }
-                blur1d(leds, NUM_LEDS, 32);
-                _helperInt0++;
-            }
-            else
-            {
-                if (movement == stop)
-                    _show = false;
-                else
-                    _show = true;
-            }
-        }
-        else if (current_fn == laser)
-        {
-            move(movement == stop ? backward : movement, false);
-            if (_helperInt0 == 0)
-                _helperByte = random(1, 8);
-
-            if (movement == foward)
-            {
-                leds[_end_index] = _helperInt0 < _helperByte ? baseColor : baseColor2;
-            }
-            else
-            {
-                leds[_start_index] = _helperInt0 < _helperByte ? baseColor : baseColor2;
-            }
-            //  blur1d(leds, 102, 16);
-
-            _helperInt0++;
-            if (_helperInt0 >= random(32, 64))
-                _helperInt0 = 0;
-        }
-        if (_show)
-            FastLED.show();
-    }
-};
-
-LedHandler ledController;
-
-struct Internals
-{
-    bool time_synced = false;
-    uint boot_time = 0;
-    bool LittleFS_Mounted = false;
-    bool updating = false;
-    byte on_brightness = 127;
-    byte oldBrightness = 0;
-    bool user_override = false;
-
-    bool tcp_state = false;
-    uint mqtt_update = 30;
-    uint last_mqtt_reconnect_attemp = 0;
-    bool mqtt_state = false;
-    bool tcp_debug = false;
-
-    bool use_time_automation = true;
-    String time_to_wake = "19:00";
-    String time_to_sleep = "22:00";
-    bool time_automation_wake_flag = false;
-    bool time_automation_sleep_flag = false;
-    uint32_t last_state_sent = 0;
-
-    uint16_t last_external_ldr = 4095;
-    bool use_external_ldr = true;
-    String external_ldr_topic = EXTERNAL_LDR_TOPIC;
-    bool current_light_state = false;
-
-    String toString()
-    {
-        String result = "time_synced: " + String(time_synced) + ";boot_time: " + String(boot_time) + ";life: " + String(millis() - boot_time);
-        return result;
-    }
-} control_variables;
+#include <Configs.h>
+#include <LightColorController.h>
+extern LedHandler ledController;
 
 struct Timers_Last_Values
 {
@@ -534,7 +76,7 @@ void send_state_to_mqtt()
     DocJson.clear();
     DocJson["Automation"] = control_variables.user_override ? Timers.Automation_resume : 0;
     DocJson["State"] = control_variables.current_light_state;
-    DocJson["Color"] = String(ledController.getHex(ledController.baseColor)).c_str();
+    DocJson["Color"] = ledController.getHex();
     DocJson["Brightness"] = control_variables.on_brightness;
     String msg;
     serializeJson(DocJson, msg);
@@ -589,61 +131,6 @@ bool CompareTime(String begin_time, String end_time)
         return begin && end;
     return begin || end;
 }
-struct ColorTask
-{
-    String label = "";
-    CRGB baseColor = 00;
-    CRGB baseColor2 = 00;
-    function fn = Solid;
-    option op = none;
-    direction movement = stop;
-    int interval = -1;
-    int _hour = -1;
-    int _minute = -1;
-    bool done = false;
-    bool Compare()
-    {
-        if (done)
-            return false;
-        if (hour() == _hour && minute() == _minute)
-            return true;
-        return false;
-    }
-
-    void Execute()
-    {
-        if (baseColor == CRGB(0))
-            ledController.setMode(fn);
-        else if (baseColor2 == CRGB(0))
-            ledController.setMode(fn, baseColor);
-        else
-            ledController.setMode(fn, baseColor, baseColor2);
-
-        if (interval > 0)
-            ledController.setInterval(interval);
-        ledController.setDirection(movement);
-        ledController.setOption(op);
-        done = true;
-    }
-    void Rearm()
-    {
-        done = false;
-    }
-
-    void reset()
-    {
-        label = "";
-        baseColor = 0;
-        baseColor2 = 0;
-        fn = Solid;
-        op = none;
-        movement = stop;
-        interval = -1;
-        _hour = -1;
-        _minute = -1;
-        done = false;
-    }
-};
 
 /// @brief Gets the MQTT topic in the proper format ie. with 'DEVICE_NAME/' before the topic.
 /// @param topic The topic without the owner prefix.
@@ -692,22 +179,23 @@ void startOTA()
     // exibe mensagem junto ao tipo de gravação
     Serial.println("Start updating " + type);
     control_variables.updating = true;
+     FastLED.setBrightness(0xff);
 }
 // exibe mensagem
 void endOTA()
 {
     Serial.println("\nEnd");
     ledController.setMode(Solid, CRGB::Green);
-    ledController.setOption(blink);
     ledController.setInterval(50);
     control_variables.updating = false;
+   
 }
 // exibe progresso em porcentagem
 void progressOTA(unsigned int progress, unsigned int total)
 {
     byte update_progress = round((float)progress / total * 100);
     Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
-    ledController.showProgbar(update_progress, CRGB::DarkGreen);
+    ledController.showProgBar(update_progress, 10000, CRGB::Red,CRGB::Blue);
 }
 
 void errorOTA(ota_error_t error)
@@ -724,7 +212,7 @@ void errorOTA(ota_error_t error)
     else if (error == OTA_END_ERROR)
         Serial.println("End Failed");
     ledController.setMode(Solid, CRGB::Red);
-    ledController.setOption(blink);
+    // ledController.setEffect(blink);
     ledController.setInterval(200);
     ledController.setFinite(2000);
     control_variables.updating = false;
@@ -797,17 +285,17 @@ String HandleTcpServertMessage(String msg, byte index)
     }
     if (msg == "f")
     {
-        ledController.movement = foward;
+        ledController.setDirection(foward);
         return "foward";
     }
     else if (msg == "b")
     {
-        ledController.movement = backward;
+        ledController.setDirection(backward);
         return "backward";
     }
     else if (msg == "s")
     {
-        ledController.movement = direction::stop;
+        ledController.setDirection (direction::stop);
         return "stop";
     }
     else if (msg == "debug")
@@ -819,7 +307,8 @@ String HandleTcpServertMessage(String msg, byte index)
     if (_index >= 0)
     {
         String sub = msg.substring(_index + 3, msg.indexOf(";"));
-        ledController.setMode(Solid, CHSV(map(sub.toInt(), 0, 359, 0, 255), 255, 255));
+        ledController.setMode(Solid);
+        ledController.setHue(map(sub.toInt(), 0, 359, 0, 255));
         return "new color: " + String(map(sub.toInt(), 0, 359, 0, 255));
     }
 
@@ -1056,7 +545,7 @@ void handleGeneral()
     {
         String msg = server.arg("color");
         uint32_t color = strtoul(msg.c_str(), NULL, HEX);
-        ledController.baseColor = color;
+        ledController.setColor(color);
         server.send(200, "text/plain", msg);
     }
     if (server.hasArg("dir"))
@@ -1068,7 +557,7 @@ void handleGeneral()
     if (server.hasArg("opt"))
     {
         int opt = atoi(server.arg("opt").c_str());
-        ledController.setOption(static_cast<option>(opt));
+       // ledController.setEffect(static_cast<effect>(opt));
         server.send(200, "text/plain", String(opt));
     }
     if (server.hasArg("get-modes"))
@@ -1107,6 +596,7 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
         if (incommingMessage.equals("get_state"))
         {
             handleLedAutomation(control_variables.current_light_state);
+            Configuration.SendToMqtt();
         }
     }
 
@@ -1115,8 +605,8 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
         int _newHue = incommingMessage.toInt();
         if (_newHue > 0 || incommingMessage == "0")
         {
-            ledController.setMode(Solid, CHSV(map(_newHue, 0, 359, 0, 255), 255, 255));
-            MqttSend("/console/currentcolor", String(ledController.getHex(ledController.baseColor)));
+            ledController.setHue(map(_newHue, 0, 359, 0, 255));
+            MqttSend("/console/currentcolor", String(ledController.getHex()));
         }
     }
     if (strcmp(topic, "Sherlock/Color") == 0)
@@ -1124,7 +614,7 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
         uint32_t _newColor = strtoul(incommingMessage.c_str(), NULL, 10);
         if (_newColor > 0 || incommingMessage == "0")
         {
-            ledController.setMode(Solid, CRGB(_newColor));
+            ledController.setColor(_newColor);
             MqttSend("/console/currentcolor", incommingMessage);
         }
     }
@@ -1133,10 +623,15 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
         MqttSend("/debug/mode", incommingMessage + " " + getfnName(getFnbyName(incommingMessage)));
         ledController.setMode(getFnbyName(incommingMessage));
     }
-    if (String(topic) == control_variables.external_ldr_topic)
+    if (strcmp(topic, "Sherlock/newconfig") == 0)
+    {
+        Configuration.FromString(incommingMessage);
+        Configuration.SaveToFile();
+    }
+    if (String(topic) == Configuration.external_ldr_topic)
     {
         control_variables.last_external_ldr = incommingMessage.toInt();
-        if (control_variables.use_external_ldr)
+        if (Configuration.use_external_ldr)
         {
             handleLedAutomation(!(control_variables.last_external_ldr > 3800));
         }
@@ -1145,7 +640,7 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
     {
         MqttSend("/debug/bright", "old: " + String(control_variables.on_brightness) + " -> " + incommingMessage);
         control_variables.on_brightness = incommingMessage.toInt();
-        handleLedAutomation(control_variables.current_light_state);
+        handleLedAutomation(control_variables.current_light_state, true);
     }
     if (strcmp(topic, "Sherlock/Lights") == 0)
     {
@@ -1175,33 +670,32 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
         String result = "";
         if (incommingMessage == "ldr_external")
         {
-            control_variables.use_external_ldr = !control_variables.use_external_ldr;
+            Configuration.use_external_ldr = !Configuration.use_external_ldr;
             result = "External LDR is now:";
-            result += control_variables.use_external_ldr ? " Enabled." : " Disabled.";
-            if (control_variables.use_external_ldr)
+            result += Configuration.use_external_ldr ? " Enabled." : " Disabled.";
+            if (Configuration.use_external_ldr)
             {
                 result += "   @'";
-                result += control_variables.external_ldr_topic;
+                result += Configuration.external_ldr_topic;
                 result += "'.";
             }
         }
         if (incommingMessage == "time_automation")
         {
-            control_variables.use_time_automation = !control_variables.use_time_automation;
+            Configuration.use_time_automation = !Configuration.use_time_automation;
             result = "Time Automation is now:";
-            result += control_variables.use_time_automation ? " Enabled." : " Disabled.";
+            result += Configuration.use_time_automation ? " Enabled." : " Disabled.";
         }
         if (incommingMessage == "test_time")
         {
-            bool light_time_state = CompareTime(control_variables.time_to_wake, control_variables.time_to_sleep);
+            bool light_time_state = CompareTime(Configuration.time_to_wake, Configuration.time_to_sleep);
             result += "\nlight_time_state is now:";
             result += light_time_state ? " true." : " false.";
             result += "Time Automation is now:";
-            result += control_variables.use_time_automation ? " Enabled." : " Disabled.";
+            result += Configuration.use_time_automation ? " Enabled." : " Disabled.";
         }
         MqttSend("/console/out", result);
     }
-
     if (strcmp(topic, "Sherlock/setinterval") == 0)
     {
         int incoming_asInt = atoi(incommingMessage.c_str());
@@ -1219,7 +713,7 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
             if ((atoi(_hour_Str.c_str()) != 0 || _hour_Str == "00") && (atoi(_min_Str.c_str()) != 0 || _min_Str == "00"))
             {
                 pass = true;
-                control_variables.time_to_wake = incommingMessage;
+                Configuration.time_to_wake = incommingMessage;
                 result += "sucess";
             }
         }
@@ -1240,7 +734,7 @@ void handle_gateway(const char *topic, String incommingMessage, bool mqtt)
             if ((atoi(_hour_Str.c_str()) != 0 || _hour_Str == "00") && (atoi(_min_Str.c_str()) != 0 || _min_Str == "00"))
             {
                 pass = true;
-                control_variables.time_to_wake = incommingMessage;
+                Configuration.time_to_wake = incommingMessage;
                 result += "sucess";
             }
         }
@@ -1340,26 +834,18 @@ void LED_TASK(void *pvParameters)
     }
 }
 
-int getRGB(CRGB c)
-{
-    int s = 0;
-    s += c.r * 0x10000;
-    s += c.g * 0x100;
-    s += c.b * 0x1;
-    return s;
-}
 void printLEDs()
 {
     Serial.println("------------------------------------------------------------------------------------------------------------------------------------");
     for (size_t i = 6; i < 15; i++)
     {
-        Serial.printf("[%2d] = %2d", i, getRGB(leds[i]));
+        Serial.printf("[%2d] = %2d", i, ledController.crgbToHex(leds[i]));
         for (size_t j = 1; j <= 9; j++)
         {
             int k = i + 10 * j;
             if (k < 102)
             {
-                Serial.printf(",  [%2d] = %2d", k, getRGB(leds[k]));
+                Serial.printf(",  [%2d] = %2d", k, ledController.crgbToHex(leds[k]));
             }
         }
         Serial.println();
@@ -1463,10 +949,13 @@ void setup()
     pinMode(LED_STRIP_PIN, OUTPUT);
     pinMode(2, OUTPUT);
     FastLED.addLeds<WS2812, LED_STRIP_PIN, GRB>(leds, LED_STRIP_SIZE); // GRB ordering is typical
-    ledController.setBoundries(6, 101);
+    ledController.SetupInfo(leds,LED_STRIP_SIZE,6,101);
     FastLED.setMaxPowerInVoltsAndMilliamps(5, 2000);
     FastLED.setBrightness(control_variables.on_brightness);
     control_variables.current_light_state = true;
+    control_variables.LittleFS_Mounted = LittleFS.begin(true);
+    Serial.printf("Fs %s\n", control_variables.LittleFS_Mounted ? "Mounted." : "Failed.");
+    Configuration.LoadFromFile();
 
     Serial.begin(115200);
 
@@ -1536,7 +1025,7 @@ void setup()
     }
 
     ledController.setMode(Solid, CRGB::Green, CRGB::BlanchedAlmond);
-    ledController.setOption(blink);
+    //ledController.setEffect(blink);
     ledController.setInterval(150);
 
     if (!notconnected)
@@ -1668,10 +1157,14 @@ void loop()
         control_variables.user_override = false;
         handleLedAutomation(!(control_variables.last_external_ldr > 3800));
     }
-    if (control_variables.use_time_automation && !control_variables.user_override)
+    if (now() - control_variables.last_state_sent > 30)
+    {
+        send_state_to_mqtt();
+    }
+    if (Configuration.use_time_automation && !control_variables.user_override)
     {
         // Turn on the lights if time is between wake and sleep hours
-        bool light_time_state = CompareTime(control_variables.time_to_wake, control_variables.time_to_sleep);
+        bool light_time_state = CompareTime(Configuration.time_to_wake, Configuration.time_to_sleep);
         if (light_time_state != control_variables.current_light_state)
         {
             handleLedAutomation(light_time_state);

@@ -1,92 +1,39 @@
-#define DEVICE_NAME "Sherlock"
-
-
-#define USE_SD
-
-// Comment this out to disable prints and save space
-
-#include <../lib/pubsubclient-2.8/src/PubSubClient.h>
-#include <../include/Creds/WifiCred.h>
-#include <../include/Creds/HiveMQCred.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
-#include <ArduinoOTA.h>
-#include <FS.h>
-#include <HTTPClient.h>
-#include <WiFiUdp.h>
-#include <DNSServer.h>
-#include "esp_task_wdt.h"
-#include <LittleFS.h>
-#include <WebServer.h>
-#include "DHTesp.h"
-#include <FastLED.h>
-#include <../lib/Time-master/TimeLib.h>
-#include <../lib/NightMare TCP/nightmaretcp.h>
-
-NightMareTCPServer tcpServer(100);
-#define LED_STRIP_PIN 19
-#define LED_STRIP_SIZE 300
-
-NightMareTCPServer tcpServer(100);
-#define LED_STRIP_PIN 19
-#define LED_STRIP_SIZE 300
-CRGB leds[LED_STRIP_SIZE];
-
-enum LED_Animations
+struct LedHandler
 {
-    Solid,
-    Blink,
-    BlinkTwoColor,
-    BlinkFinite,
-    IndividualRandom,
-    FadeInOutSolid,
-    FadeInOutRandom,
-    RandomWithFade,
-    Codes,
-    DebugCodes,
-    OnePixelLoop,
-    WiFiStrength,
-    WiFiStrengthInverse,
-    WiFi_Blink,
-    PingPong,
-    PingPongRainbow,
-    PingPongRandom,
-    test,
-    showHandlesRandomWithfade
-};
-
-struct LED_Controller
-{
-#define TOTALSIZE 300
+#define NUM_LEDS 102
 private:
     unsigned long _lastMillis = 0;
     int _Index1 = 0;
     int _Index2 = 0;
-    bool _backwards = false;
-    bool _progbar_is_running = false;
     int _start_index = 0;
-    int _end_index = TOTALSIZE;
-    int _num_of_leds = TOTALSIZE;
+    int _end_index = NUM_LEDS;
+    int _num_of_leds = NUM_LEDS;
     int _interval = 25;
-    int _old_interval = 25;
     bool _helperFlag = false;
-    int _helperInt = 0;
-    int _beatsPerMinute = 60;
+    int _helperInt0 = 0;
+    int _helperInt1 = 0;
+    byte _helperByte = 0;
+    bool _halt = false;
+    bool _finite = false;
+    bool _show = true;
+    uint32_t _finite_timestamp = 0;
+
+    int _old_interval = 25;
+    CRGB _old_baseColor = CRGB::Red;
+    CRGB _old_baseColor2 = CRGB::Blue;
+    function _old_fn = function::Solid;
+    direction _old_movement = direction::stop;
+    effect _old_options = effect::none;
 
 public:
-    byte currenthue = 0;
-    LED_Animations current_animation = LED_Animations::IndividualRandom;
+    function current_fn = function::Solid;
     CRGB baseColor = CRGB::GreenYellow;
     CRGB baseColor2 = CRGB::Blue;
-    LED_Animations old_animation = LED_Animations::Solid;
-    CRGB old_baseColor = CRGB::Red;
-    CRGB old_baseColor2 = CRGB::Blue;
-    bool halt = false;
-
-    // Set which LEDS are being controlled in the LED array, also inverts [start] and [finish] if [finish] < [start]
+    direction movement = direction::stop;
+    effect options = effect::none;
     void setBoundries(int start, int finish)
     {
-        for (size_t i = 0; i < TOTALSIZE; i++)
+        for (size_t i = 0; i < NUM_LEDS; i++)
         {
             leds[i] = 0;
         }
@@ -99,29 +46,15 @@ public:
         }
         if (start < 0)
             start = 0;
-        if (finish >= TOTALSIZE)
-            finish = TOTALSIZE - 1;
+        if (finish >= NUM_LEDS)
+            finish = NUM_LEDS - 1;
 
         _start_index = start;
         _end_index = finish;
         _num_of_leds = _end_index - _start_index + 1;
     }
-
-    void setBPM(int beatsPerMinute)
-    {
-        if (beatsPerMinute > 0)
-        {
-            _beatsPerMinute = beatsPerMinute;
-            // setInterval(floor((float)(1/(beatsPerMinute/60))* (float)(1000/_end_index)));
-        }
-    }
-    // Sets the interval for the animations in ms min = 10 ms;
     void setInterval(int newInterval, int beatsPerMinute = 0)
     {
-        if (beatsPerMinute > 0)
-        {
-            _beatsPerMinute = beatsPerMinute;
-        }
         if (newInterval < 10)
         {
             newInterval = 10;
@@ -129,1458 +62,286 @@ public:
         _interval = newInterval;
         Serial.printf("new interval: %d\n", newInterval);
     }
-
-    // Sets the new mode.
-    void setMode(CRGB led_array[], LED_Animations newAnimation, CRGB color1 = 0x0, CRGB color2 = 0x0, int interval = 25, int _arg0 = 0)
+    void setFinite(uint32_t time_to_finish_ms)
     {
-        halt = false;
-        old_animation = current_animation;
-        current_animation = newAnimation;
+        _finite = true;
+        _finite_timestamp = millis() + time_to_finish_ms;
+    }
+    void setOption(effect newOption)
+    {
+        options = newOption;
+    }
+    void setDirection(direction newDirection)
+    {
+        movement = newDirection;
+    }
+    void goToLastMode()
+    {
+        direction temp_mov = _old_movement;
+        effect temp_opt = _old_options;
 
-        old_baseColor = baseColor;
-        old_baseColor2 = baseColor2;
-        _old_interval = interval;
-        baseColor = color1;
-        baseColor2 = color2;
+        setMode(_old_fn, _old_baseColor, _old_baseColor2);
+        setDirection(temp_mov);
+        setOption(_old_options);
+    }
+    void setMode(function new_fn)
+    {
+        setMode(new_fn, baseColor);
+    }
+    void setMode(function new_fn, CRGB newColor1, CRGB newColor2 = CRGB::Black)
+    {
+        _halt = false;
+        _old_fn = current_fn;
+        _old_baseColor = baseColor;
+        _old_baseColor2 = baseColor2;
+        _old_movement = movement;
+        _old_options = options;
+        options = none;
+        movement = stop;
+        current_fn = new_fn;
+        baseColor = newColor1;
+        baseColor2 = newColor2;
         _lastMillis = 0;
         _helperFlag = false;
-        _helperInt = 0;
+        _helperInt0 = 0;
+        _helperInt1 = 0;
+        _helperByte = 0;
+        _show = true;
+        FastLED.clear();
+    }
+    void showProgbar(byte percentage, CRGB ValueColor = CRGB::DarkCyan, CRGB BackColor = CRGB::DarkGoldenrod)
+    {
+        _halt = true;
+        byte percentIndex = round(percentage * _end_index / 100);
+        for (size_t i = _start_index; i <= _end_index; i++)
+        {
+            if (i <= percentIndex)
+                leds[i] = ValueColor;
+            else
+                leds[i] = BackColor;
+        }
+        FastLED.show();
+    }
 
-        setInterval(interval);
+    void partialMove(direction dir, int startIndex, int endIndex, bool loop = true)
+    {
+        // Serial.printf("Start P.M, d = %d, s = %d, e = %d,\n", dir, startIndex, endIndex);
+        // Serial.println("");
+        if (dir == foward)
+        {
+            CRGB first = leds[startIndex];
 
-        if (newAnimation == Solid)
-        {
-            baseColor = color1;
-        }
-        else if (newAnimation == IndividualRandom)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
+            for (size_t i = startIndex; i < endIndex; i++)
             {
-                led_array[i] = CRGB(random8(), random8(), random8());
+                // Serial.printf("[%d] - > [%d]\n", i, i + 1);
+                leds[i] = leds[i + 1];
             }
+            if (loop)
+                leds[endIndex] = first;
         }
-        else if (newAnimation == Blink)
+        else if (dir == backward)
         {
-            for (size_t i = _start_index; i <= _end_index; i++)
+            CRGB last = leds[endIndex];
+
+            for (size_t i = 0; i < endIndex - startIndex; i++)
             {
-                led_array[i] = baseColor;
+                // Serial.printf("[%d] - > [%d]\n", endIndex - i, endIndex - (i + 1));
+                leds[endIndex - i] = leds[endIndex - (i + 1)];
             }
+            if (loop)
+                leds[startIndex] = last;
         }
-        else if (newAnimation == BlinkTwoColor)
+
+        return;
+    }
+    void move(direction dir, bool loop = true)
+    {
+        // partialMove(dir, _start_index, _end_index, loop);
+        // return;
+        if (dir == foward)
         {
-            for (size_t i = _start_index; i <= _end_index; i++)
+            CRGB first = leds[_start_index];
+
+            for (size_t i = _start_index; i < _end_index; i++)
             {
-                led_array[i] = baseColor;
+                leds[i] = leds[i + 1];
             }
+            if (loop)
+                leds[_end_index] = first;
         }
-        else if (newAnimation == BlinkFinite)
+        else if (dir == backward)
         {
-            _helperInt = _arg0;
-            Serial.println(_arg0);
-            for (size_t i = _start_index; i <= _end_index; i++)
+            CRGB first = leds[_end_index];
+
+            for (size_t i = 0; i < _end_index - _start_index; i++)
             {
-                led_array[i] = baseColor;
+                leds[_end_index - i] = leds[_end_index - (i + 1)];
             }
-        }
-        else if (newAnimation == FadeInOutSolid)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                led_array[i] = baseColor;
-            }
-        }
-        else if (current_animation == RandomWithFade)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                led_array[i] = CHSV(random8(), 255, 255);
-            }
-            _helperInt = 0;
-        }
-        else if (current_animation == OnePixelLoop)
-        {
-            _helperInt = 0;
-            _helperFlag = true;
-            for (size_t i = _start_index + 1; i <= _end_index; i++)
-            {
-                led_array[i] = baseColor2;
-            }
-            led_array[_start_index] = baseColor;
-        }
-        else if (current_animation == WiFi_Blink)
-        {
-            _helperFlag = true;
-        }
-        else if (current_animation == test)
-        {
-            _helperInt = 0;
-        }
-        else if (current_animation == showHandlesRandomWithfade)
-        {
-            _helperInt = 0;
-            for (size_t i = 0; i < 10; i++)
-            {
-                leds[19 + i] = baseColor;
-                leds[50 + i] = baseColor;
-                leds[83 + i] = baseColor;
-            }
+            if (loop)
+                leds[_start_index] = first;
         }
     }
 
-    void run(CRGB led_array[])
+    uint32_t getHex(CRGB rgb)
     {
-        if (millis() < _lastMillis + _interval || _progbar_is_running || halt)
+        return rgb.red * 0x10000 + rgb.green * 0x100 + rgb.blue;
+    }
+    void run()
+    {
+        if (millis() >= _finite_timestamp && _finite)
+            goToLastMode();
+        if (millis() < _lastMillis + _interval || _halt)
             return;
         _lastMillis = millis();
-
-        if (current_animation == Solid)
+        if (current_fn == Solid)
         {
-            for (size_t i = _start_index; i <= _end_index; i++)
+            if (options == fade)
             {
-                led_array[i] = baseColor;
-            }
-        }
-        else if (current_animation == IndividualRandom)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                led_array[i] = CHSV(random8(), 255, 127);
-            }
-        }
-        else if (current_animation == Blink)
-        {
-            // for (size_t i = _start_index; i <= _end_index; i++)
-            // {
-            //   leds[i] = CRGB(baseColor.r * _helperFlag, baseColor.g * _helperFlag, baseColor.b * _helperFlag);
-            // }
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                CHSV hsv = RGBtoHSV(baseColor);
-                hsv.v = hsv.v * _helperFlag;
-                led_array[i] = hsv;
-            }
-            _helperFlag = !_helperFlag;
-        }
-        else if (current_animation == BlinkTwoColor)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                leds[i] = CRGB(baseColor.r * _helperFlag + baseColor2.r * !_helperFlag, baseColor.g * _helperFlag + baseColor2.g * !_helperFlag, baseColor.b * _helperFlag + baseColor2.b * !_helperFlag);
-            }
-            _helperFlag = !_helperFlag;
-        }
-        else if (current_animation == BlinkFinite)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                CHSV hsv = RGBtoHSV(baseColor);
-                hsv.v = hsv.v * _helperFlag;
-                led_array[i] = hsv;
-            }
-            Serial.println(_helperInt);
-
-            _helperFlag = !_helperFlag;
-            _helperInt--;
-            if (_helperInt == 0)
-                goToLastMode(led_array);
-        }
-        else if (current_animation == FadeInOutSolid)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                led_array[i] = baseColor;
-                int brigthness = 0;
-                if (_backwards)
-                    brigthness = _helperInt * 10;
-                else
-                    brigthness = (25 - _helperInt) * 10;
-                if (brigthness > 255)
-                    brigthness = 255;
-                else if (brigthness < 0)
-                    brigthness = 0;
-
-                led_array[i].maximizeBrightness(brigthness);
-            }
-            _helperInt++;
-            if (_helperInt == 26)
-            {
-                _helperInt = 0;
-                _backwards = !_backwards;
-            }
-        }
-        else if (current_animation == FadeInOutRandom)
-        {
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                led_array[i] = CHSV(random8(), 255, (25 - _helperInt) * 10);
-            }
-            if (!_backwards)
-                _helperInt++;
-            else
-                _helperInt--;
-            if (_helperInt == 26 || _helperInt == 0)
-            {
-                _helperInt = 0;
-                _backwards = !_backwards;
-            }
-        }
-        else if (current_animation == RandomWithFade)
-        {
-            if (_helperInt >= 100)
-            {
-                CRGB b = CHSV(random8(), 255, 255);
-                for (size_t i = _start_index; i <= _end_index; i++)
+                _show = true;
+                if (_helperInt0 == 0)
                 {
-                    led_array[i] = b;
+                    for (size_t i = _start_index; i < _end_index; i++)
+                    {
+                        leds[i] = baseColor;
+                    }
                 }
-                _helperInt = 0;
+                else
+                {
+                    fadeToBlackBy(leds, NUM_LEDS, 16);
+                }
+                _helperInt0++;
+                if (_helperInt0 == 16)
+                    _helperInt0 = 0;
+            }
+            else if (options == blink)
+            {
+                _show = true;
+                _helperFlag = !_helperFlag;
+                for (size_t i = _start_index; i < _end_index; i++)
+                {
+                    leds[i] = _helperFlag ? baseColor : baseColor2;
+                }
             }
             else
             {
-                fade_raw(led_array, _num_of_leds, 5);
-                _helperInt++;
+                _show = false;
+                for (size_t i = _start_index; i < _end_index; i++)
+                {
+                    if (leds[i] != baseColor)
+                    {
+                        leds[i] = baseColor;
+                        _show = true;
+                    }
+                }
             }
         }
-
-        else if (current_animation == showHandlesRandomWithfade)
+        else if (current_fn == lightShow)
         {
-            fadeToBlackBy(leds, 101, 8);
-            _helperInt++;
-            if (_helperInt >= 40)
+            fadeToBlackBy(leds, _end_index, 32);
+            leds[_start_index + _helperInt0] = _helperFlag ? baseColor : baseColor2;
+            leds[_end_index - _helperInt0] = _helperFlag ? baseColor2 : baseColor;
+            blur1d(leds, _end_index, 64);
+            _helperInt0++;
+            if (_start_index + _helperInt0 > _end_index)
+            {
+                _helperInt0 = 0;
+                _helperFlag = !_helperFlag;
+                if (_helperFlag = true)
+                {
+                    baseColor = CHSV(random8(), 255, 255);
+                    baseColor2 = CHSV(random8(), 255, 255);
+                }
+            }
+        }
+        else if (current_fn == ShowHandlesRandom)
+        {
+            fadeToBlackBy(leds, _num_of_leds, 8);
+            _helperInt0++;
+            if (_helperInt0 >= 8)
+                move(movement);
+            if (_helperInt0 >= 40)
             {
                 uint8_t newhue = random8();
-                _helperInt = 0;
+                _helperInt0 = 0;
                 for (size_t i = 0; i < 10; i++)
                 {
                     leds[19 + i] = CHSV(newhue, 255, 255);
-                    ;
+
                     leds[50 + i] = CHSV(newhue + 85, 255, 255);
-                    ;
+
                     leds[83 + i] = CHSV(newhue + 170, 255, 255);
-                    ;
                 }
             }
         }
-
-        else if (current_animation == OnePixelLoop)
+        else if (current_fn == ShowHandles)
         {
-            led_array[_start_index + _helperInt] = baseColor2;
-            for (size_t i = 0; i < 5; i++)
+            _show = false;
+            if (leds[19] != baseColor)
             {
-                led_array[_start_index + _helperInt - i] = baseColor2;
+               _show = true;
             }
-
-            if (_helperFlag)
+            
+            for (size_t i = 0; i < 10; i++)
             {
-                _helperInt++;
-                if (_start_index + _helperInt > _end_index)
+                leds[19 + i] = baseColor;
+
+                leds[50 + i] = baseColor;
+
+                leds[83 + i] = baseColor;
+            }
+        }
+        else if (current_fn == randomLights)
+        {
+            fadeToBlackBy(leds, _num_of_leds, 8);
+            move(movement);
+            leds[random(7, 102)] = CHSV(random8(), 255, 255);
+        }
+        else if (current_fn == rainbow)
+        {
+            int midIndex = (_end_index - _start_index) / 2;
+            partialMove(movement, _start_index, midIndex);
+            partialMove(opposite(movement), midIndex + 1, _end_index);
+            if (_helperInt0 == 0)
+            {
+                int8_t startHue = random8();
+                for (size_t i = _start_index; i <= _end_index; i++)
                 {
-                    _helperFlag = !_helperFlag;
-                    _helperInt--;
-                    baseColor = CHSV(random8(), 255, 255);
+                    leds[i] = CHSV(startHue + i * 4, 255, 255);
                 }
+                blur1d(leds, NUM_LEDS, 32);
+                _helperInt0++;
             }
             else
             {
-                _helperInt--;
-                if (_start_index + _helperInt - 4 < _start_index)
-                {
-                    _helperFlag = !_helperFlag;
-                    _helperInt++;
+                if (movement == stop)
+                    _show = false;
+                else
+                    _show = true;
+            }
+        }
+        else if (current_fn == laser)
+        {
+            move(movement == stop ? backward : movement, false);
+            if (_helperInt0 == 0)
+                _helperByte = random(1, 8);
 
-                    baseColor = CHSV(random8(), 255, 255);
-                }
-            }
-            led_array[_start_index + _helperInt] = baseColor;
-            for (size_t i = 0; i < 5; i++)
+            if (movement == foward)
             {
-                led_array[_start_index + _helperInt - i] = baseColor;
+                leds[_end_index] = _helperInt0 < _helperByte ? baseColor : baseColor2;
             }
-        }
-        else if (current_animation == WiFiStrength)
-        {
-            int rssi = WiFi.RSSI();
-            int percent_index = map(rssi, -90, -50, _start_index, _end_index);
-            for (size_t i = _start_index; i <= _end_index; i++)
-            {
-                if (i <= percent_index)
-                {
-                    led_array[i] = baseColor;
-                }
-                else
-                {
-                    led_array[i] = baseColor2;
-                }
-            }
-        }
-        else if (current_animation == WiFiStrengthInverse)
-        {
-            int rssi = WiFi.RSSI();
-            int percent_index = map(rssi, -90, -50, _start_index, _end_index);
-            for (signed int i = _end_index; i >= _start_index; i--)
-            {
-                if (i >= _end_index - percent_index)
-                {
-                    led_array[i] = baseColor;
-                }
-                else
-                {
-                    led_array[i] = baseColor2;
-                }
-            }
-        }
-        else if (current_animation == WiFi_Blink)
-        {
-            if (_helperFlag)
-                led_array[_start_index] = baseColor;
             else
-                led_array[_start_index] = baseColor2;
-            _helperFlag = !_helperFlag;
-        }
-        else if (current_animation == PingPong)
-        {
-            int newindex = beatsin8(_beatsPerMinute, _start_index, _end_index);
-            fadeToBlackBy(led_array, _end_index + 1, 64);
-            led_array[newindex] = baseColor;
-            blur1d(led_array, _end_index + 1, 16);
-        }
-        else if (current_animation == PingPongRainbow)
-        {
-            int newindex = beatsin8(_beatsPerMinute, _start_index, _end_index);
-            fadeToBlackBy(led_array, _end_index + 1, 64);
-            led_array[newindex] = CHSV(map(newindex, _start_index, _end_index / 3, 0, 255), 255, 255);
-            blur1d(led_array, _end_index + 1, 16);
-        }
-        else if (current_animation == PingPongRandom)
-        {
-
-            int newindex = beatsin8(_beatsPerMinute, _start_index, _end_index);
-            bool skip = _helperInt == newindex;
-            _helperInt = newindex;
-            if (skip)
             {
-                led_array[newindex] = CHSV(random8(255), 255, 255);
-                fadeToBlackBy(led_array, _end_index + 1, 64);
+                leds[_start_index] = _helperInt0 < _helperByte ? baseColor : baseColor2;
             }
-            blur1d(led_array, _end_index + 1, 16);
-        }
-        FastLED.show();
-    }
+            //  blur1d(leds, 102, 16);
 
-    CHSV RGBtoHSV(CRGB rgb)
-    {
-        CHSV hsv = CHSV(0, 0, 0);
-        byte xMin = rgb.r;
-        if (rgb.g < xMin)
-        {
-            xMin = rgb.g;
+            _helperInt0++;
+            if (_helperInt0 >= random(32, 64))
+                _helperInt0 = 0;
         }
-        if (rgb.b < xMin)
-        {
-            xMin = rgb.b;
-        }
-        byte xMax = rgb.r;
-        if (rgb.g > xMax)
-        {
-            xMax = rgb.g;
-        }
-        if (rgb.b > xMax)
-        {
-            xMax = rgb.b;
-        }
-        hsv.v = xMax;
-        byte delta = xMax - xMin;
-        if (xMax != 0)
-        {
-            hsv.s = (int)(delta)*255 / xMax;
-        }
-        else
-        {
-            hsv.h = 0;
-            hsv.s = 0;
-            return hsv;
-        }
-        uint hue = 0;
-        if (rgb.r == xMax)
-        {
-            hue = (rgb.g - rgb.b) * 60 / delta;
-        }
-        else if (rgb.g == xMax)
-        {
-            hue = 120 + (rgb.b - rgb.r) * 60 / delta;
-        }
-        else
-        {
-            hue = 240 + (rgb.r - rgb.g) * 60 / delta;
-        }
-        if (hue < 0)
-        {
-            hue += 360;
-        }
-        hsv.h = map(hue, 0, 360, 0, 255);
-        return hsv;
-    }
-    void goToLastMode(CRGB led_array[])
-    {
-        setMode(led_array, old_animation, old_baseColor, old_baseColor2, _old_interval);
-    }
-
-    void progBar(CRGB led_array[], byte percentage, byte numLED, CRGB ValueColor = CRGB::DarkGreen, CRGB BackColor = CRGB::DarkRed, int delayMS = 4000)
-    {
-        _progbar_is_running = true;
-        byte oldBrightness = FastLED.getBrightness();
-        FastLED.setBrightness(255);
-        FastLED.clear();
-        if (percentage > 100)
-            percentage = 100;
-        if (numLED > _end_index)
-            numLED = _end_index;
-        for (size_t i = _start_index; i < numLED; i++)
-        {
-            led_array[i] = BackColor;
-        }
-        FastLED.show();
-        int value = round((double)percentage / 100 * numLED);
-        for (size_t i = _start_index; i <= value; i++)
-        {
-            led_array[i] = ValueColor;
-            delay(50);
+        if (_show)
             FastLED.show();
-        }
-        delay(delayMS);
-        FastLED.clear();
-        FastLED.setBrightness(oldBrightness);
-        _progbar_is_running = false;
-    }
-
-    void setCode(CRGB led_array[], String codeString)
-    {
-        if (current_animation != Codes)
-            return;
-
-        CRGB code_colors[3] = {CRGB::Black, CRGB::Black, CRGB::Black};
-        if (codeString.length() >= 3)
-        {
-            for (size_t i = 0; i < 3; i++)
-            {
-                code_colors[i] = getColorbyChar(codeString[i]);
-            }
-        }
-        else
-        {
-            for (size_t i = 0; i < codeString.length(); i++)
-            {
-                code_colors[i] = getColorbyChar(codeString[i]);
-            }
-        }
-        for (size_t i = 0; i < 3; i++)
-        {
-            led_array[i] = code_colors[i];
-        }
-
-        FastLED.show();
-    }
-    CRGB getColorbyChar(char char_to_parse)
-    {
-        switch (char_to_parse)
-        {
-        case 'R':
-            return CRGB::Red;
-            break;
-        case 'G':
-            return CRGB::Green;
-            break;
-        case 'B':
-            return CRGB::Blue;
-            break;
-        case 'Y':
-            return CRGB::Yellow;
-            break;
-        case 'W':
-            return CRGB::White;
-            break;
-
-        default:
-            return CRGB::Black;
-            break;
-        }
     }
 };
-LED_Controller ledController;
 
-#define ONE_WIRE_BUS 16
-
-#define NO_LED_FEEDBACK_CODE
-#define DEVICE_NAME "Sherlock"
-// DS8
-#define COMPILE_SERIAL
-#define USE_OTA
-// #define TEST
-// #define WIFI_SCAN
-// #define PRINT_FIRMWARE
-
-// DS1820 Stuff
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature tempSensor(&oneWire);
-DeviceAddress sensorAddress;
-void sendIR(uint32_t);
-DHTesp dht;
-#define dht_type DHTesp::DHT11
-#define dht_pin 17
-
-
-#pragma region FastLED
-
-#include <FastLED.h>
-
-// 2 WS2811 lights
-// 1 WS2818b strip
-
-int maxIndex = 60;
-byte currentHue = 0;
-bool back = false;
-int lastMillis = 0;
-int interval = 50;
-// WS2818b Strip
-#define LED_STRIP_SIZE 60
-#define LED_STRIP_PIN 26
-#define LED_STRIP_COLOR_ORDER GRB
-
-#define LED_MAX_AMPS
-#define LED_VOLTAGE
-uint16_t LED_BaseColor_1 = 0x0; // Contains an RGB value for the strip
-uint16_t LED_BaseColor_2 = 0x0; // Contains an RGB value for the stripw
-int patternIndex = 0;
-
-CRGB leds[LED_STRIP_SIZE];
-
-
-
-enum PatternMode
-{
-  blink,
-  blinktwo,
-  rainbow,
-  movingrainbow,
-  scaleup,
-  scaledown
-};
-
-PatternMode mode = PatternMode::scaleup;
-struct Pattern
-{
-  
-  unsigned long lastMillis = 0;
-  int interval = 25;
-  int Index1 = 0;
-  int Index2 = 0;
-  int maxIndex = 60;
-  byte currenthue = 0;
-  CRGB baseColor = CRGB::Red;
-  CRGB baseColor2 = CRGB::Blue;
-  CRGB baseColor3 = CRGB::Green;
-  PatternMode mode = PatternMode::scaleup;
-  bool backwards = false;
-
-  void setMode(PatternMode newMode)
-  {
-    mode = newMode;  
-  }
-
-  void run()
-  {
-    if (millis() < lastMillis + interval)
-    return;
-    lastMillis = millis();
-   // interval = map(Index1,maxIndex,0,15,75);
-
-    if (mode == PatternMode::scaleup)
-    {
-      int index = Index1; 
-      if (backwards)
-      index = maxIndex -1 -  Index1;
-      int pos =0;
-      pos = map(beat8(120,0),0,255,0,maxIndex-1);//,59,0,0);
-       //if (backwards)
-       ///  pos = map(beat8(40,0),255,0,0,maxIndex-1);
-      leds[index] = CHSV(map(Index1,0,maxIndex,currenthue,currenthue +maxIndex),255,127);
-      Index1++;
-    fade_raw(leds,maxIndex,16);
-
-
-      
-    if (Index1 >= maxIndex)
-    {
-      Index1 = 0;
-      backwards = !backwards;
-      currenthue = random8(currenthue+85,currenthue+170);
-    }
-    }
-
-    FastLED.show();
-  }
-  
-};
-
-Pattern p;
-
-#pragma endregion
-
-bool autoBright = false;
-
-#define DHT_PIN 17
-#define DHT_TYPE DHT11
-
-#define LDR_PIN 32
-
-#define DS18_BUS 16
-#define DS18_READS 10
-
-#define ONBOARD_LED_PIN 5
-
-#define VBAT_PIN 35
-
-#define MAX_HISTORY_SIZE 100
-
-// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
-OneWire oneWire(DS18_BUS);
-// Pass our oneWire reference to Dallas Temperature.
-DallasTemperature DS18(&oneWire);
-
-DHT dht(DHT_PIN, DHT_TYPE);
-
-
-#pragma region TCP server
-
-#define MAX_CLIENTS 10 // Maximum active simultaneous clients.
-// If this is changed, be aware of the memory limitations
-// Also, note that for clients connected after this limit
-// There is already a system in place to liberate availability
-// (timeout)
-
-WiFiServer wifiServer(100); // Creates the tcp server object at port 100
-
-// You may change the default Timeout for inactive clients connected and if its disable by default
-// It is not recomended to disable it because it can only listen to MAX_CLIENTS clients at a time.
-int SET_TIMEOUT = 300;
-bool DISABLE_TIMEOUT = false;
-
-enum TransmissionMode
-{
-  ThreeCharHeaders = 2,
-  SizeColon = 1,
-  AllAvailable = 0
-};
-
-String PrepareMsg(String msg, TransmissionMode mode, String Headers = "");
-
-struct NightMareTCPClient
-{
-  // The actual TCP Object
-  WiFiClient *client = NULL;
-  // Last Time the client sent anything
-  int clientsTimeout = 0;
-  // Client Status {If a message Z;* is Recieved then it is stored here}
-  String clientsStatus = "";
-  // Client ID
-  String clientsID = "";
-  // If Clients
-  bool clientsRequestUpdates = false;
-  // The Time Stamp for the Status String
-  int clientsStatusTime = 0;
-  // Set the Nightmare TCP transmission mode. ThreeCharHeaderis not supported here
-  TransmissionMode transmissionMode = TransmissionMode::AllAvailable;
-
-  // Sends The msg formatted according to the transmission mode
-  void send(String msg)
-  {
-
-    if (client != NULL)
-    {
-      String m = PrepareMsg(msg, transmissionMode);
-      Serial.println(m);
-      client->print(m);
-    }
-  }
-
-  // Resets The internal variables
-  void reset()
-  {
-    client = NULL;
-    clientsTimeout = 0;
-    clientsStatus = "";
-    clientsID = "";
-    clientsRequestUpdates = false;
-    clientsStatusTime = 0;
-    transmissionMode = TransmissionMode::AllAvailable;
-  }
-};
-
-NightMareTCPClient clients[MAX_CLIENTS];
-
-// Set the Nightmare TCP transmission mode. ThreeCharHeaderis not supported here
-// Transmission Char for ThreeHeader protocols
-char TransmissionChar = '!';
-
-#pragma endregion
-
-#pragma region Sensors
-
-bool is_time_synced = false;         // True if time was synced false if not.
-uint16_t sensor_update_interval = 1; // Sets the interval for refreshing the sensor data in seconds.
-uint16_t sensor_log_interval = 3600; // Sets the interval for refreshing the sensor data in seconds.
-int last_sensor_update = 0;          // unix timestamp in seconds of last sensor update.
-int last_sensor_log = 0;             // unix timestamp in seconds of last sensor log.
-bool wl_half = false;                // water level half.
-bool wl_empty = false;               // water level empty.
-byte Water_Level = 0;                // Water tank % accounted by the 2 sensors.
-float DS18inner = 0;                 // Value of inner temperature sensor in Celcius.
-float DS18Probe = 0;                 // Value of DS18 waterproof probe temperature sensor in Celsius.
-uint32_t Last_Auto_Pump = 0;         // Time stamp of last time the pump was on;
-int Auto_pump_interval = 172800;     // 172800; // Time in seconds between each pump activation time 172800 s = 48 hours
-int Auto_pump_timer = 10000;         // Time in ms for the pump to stay on each time it is automatically triggered
-
-#define MAX_MOISTURE_1_READ 3716
-#define MOISTURE_READS 10           // number of analog reads for average
-byte Moisture_1 = 0;                // Moisture probe 1 % in range - 0 to MAX_MOISTURE_1_READ
-float innerTemp = 0, probeTemp = 1; // DS18 temps in Celsius
-float DHT11_temp = 0, DHT11_hum = 0;
-
-uint16_t LDR_VALUE = 0;
-
-// not used
-uint16_t Rain_level = 0;
-int light = 0;
-int vbat = 0;
-u_int last_time_pump_was_on = 0;
-
-#pragma endregion
-
-uint pump_start_timestamp = 0;                         // Millis() of when did the pump started
-bool pump_is_running = false;                          // is the pump currently running
-bool pump_prog_end = false;                            // Wheater or not the pump is supposed to stop based on the timer
-uint pump_end = 0;                                     // Millis() of when the pump is supposed to end
-String pump_last_run = "Never On";                     // String for the Blynk V10
-bool pump_force = false;                               // forces the pump to run despites the Water Level sensors
-bool low_water_triggered = false;                      // Prevents loops of low water warnings
-bool is_SD_mounted = false, is_SPIFFS_mounted = false; // Flags to see if mount of SD and  SPIFFS were sucessful
-bool fifty_water_marker = false;                       // Prevents loops of half water warnings
-
-bool SendWifiResults = false; // Flag to send the results from the wifi scan once its done;
-bool oldWifiStatus = false;   // Flag to not keep wirting to the digital pin ????
-
-//Writes the content to the speficied file
-void FileWrite(String FileName, String Message, bool useSPIFFS = true, bool timestamp = true, bool addSensors = false)
-{
-  File logfile;
-  String Msg = "";
-
-  if (timestamp)
-  {
-    Msg += "[";
-    if (day() < 10)
-      Msg += "0";
-    Msg += day();
-    Msg += "/";
-    if (month() < 10)
-      Msg += "0";
-    Msg += month();
-    Msg += " ";
-    if (hour() < 10)
-      Msg += "0";
-    Msg += hour();
-    Msg += ":";
-    if (minute() < 10)
-      Msg += "0";
-    Msg += minute();
-    Msg += "] - ";
-  }
-
-  Msg += Message;
-
-  if (is_SPIFFS_mounted && useSPIFFS)
-  {
-    double usage = SPIFFS.usedBytes() / SPIFFS.totalBytes();
-    if (addSensors)
-    {
-      Msg += "   - [";
-      Msg += innerTemp;
-      Msg += ",";
-      Msg += probeTemp;
-      Msg += ",";
-      Msg += Moisture_1;
-      Msg += ",";
-      Msg += Water_Level;
-      Msg += ",";
-      Msg += usage;
-      Msg += "]";
-    }
-    if (usage > 90)
-    {
-      Serial.println("SPIFFS is full.");
-    }
-    logfile = SPIFFS.open(FileName, "a", true);
-    logfile.println(Msg);
-    logfile.close();
-  }
-  else if (is_SD_mounted && !useSPIFFS)
-  {
-    Serial.println("not implemented");
-  }
-}
-
-#pragma region OTA
-void startOTA()
-{
-  String type;
-  // is_updating = true;
-  //  caso a atualização esteja sendo gravada na memória flash externa, então informa "flash"
-  if (ArduinoOTA.getCommand() == 0)
-    type = "flash";
-  else                   // caso a atualização seja feita pela memória interna (file system), então informa "filesystem"
-    type = "filesystem"; // U_SPIFFS
-  // exibe mensagem junto ao tipo de gravação
-  Serial.println("Start updating " + type);
-}
-// exibe mensagem
-void endOTA()
-{
-  Serial.println("\nEnd");
-}
-// exibe progresso em porcentagem
-void progressOTA(unsigned int progress, unsigned int total)
-{
-  // update_progress = (float)progress / total * 100;
-  Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
-}
-
-void errorOTA(ota_error_t error)
-{
-  Serial.printf("Error[%u]: ", error);
-  if (error == OTA_AUTH_ERROR)
-    Serial.println("Auth Failed");
-  else if (error == OTA_BEGIN_ERROR)
-    Serial.println("Begin Failed");
-  else if (error == OTA_CONNECT_ERROR)
-    Serial.println("Connect Failed");
-  else if (error == OTA_RECEIVE_ERROR)
-    Serial.println("Receive Failed");
-  else if (error == OTA_END_ERROR)
-    Serial.println("End Failed");
-}
-#pragma endregion
-
-void printAddress(DeviceAddress deviceAddress)
-{
-  for (uint8_t i = 0; i < 8; i++)
-  {
-    if (deviceAddress[i] < 16)
-      Serial.print("0");
-    Serial.print(deviceAddress[i], HEX);
-  }
-}
-
-String HandleMsg(String msg, NightMareTCPClient &_client)
-{
-#ifdef DEBUG
-  Serial.print("[");
-  Serial.print(_client.client->remoteIP());
-  Serial.printf("]:%d ", _client.client->remotePort());
-  Serial.print((char)39);
-  Serial.print(msg);
-  Serial.println((char)39);
-#endif
-
-  String response = "";
-
-  if (msg == "Help" || msg == "help" || msg == "H" || msg == "h")
-  {
-    response += ("Welcome to NightMare Home Systems ©\nThis is a ESP32 Module and it can answer to the following commands:\n");
-    response += ("Quick obs.: the character int [19] or char () is ignored when recieved for facilitating reasons.");
-    response += ("'A' > Gets the current state of available variables\n'L' > Toggles the LIGH_RELAY state\n");
-    response += ("'T;******;' > Sets the TIMEOUT value for the tcp server.[Replace '******' with a long.\n");
-    response += ("'SOFTWARE_RESET' requests a software reset.");
-  }
-  else if (msg == "REQ_CLIENTS")
-  {
-    for (int i = 0; i < MAX_CLIENTS; i++)
-    {
-      if (NULL != clients[i].client)
-      {
-        response += "Client [";
-        response += i;
-        response += "], IP: ";
-        response += clients[i].client->remoteIP().toString();
-        response += ", (self) ID:";
-        response += clients[i].clientsID;
-        response += ", INFO: ";
-        response += clients[i].clientsStatus[i];
-        response += "\n";
-      }
-    }
-  }
-  else if (msg == "REQ_UPDATES")
-  {
-    _client.clientsRequestUpdates = !_client.clientsRequestUpdates;
-    response = "Your REQ_UPDATES flag is now: ";
-    if (_client.clientsRequestUpdates)
-      response += true;
-    else
-      response += false;
-  }
-  else if (msg == "REQ_UPDATES_1")
-  {
-    response += "Your REQ_UPDATES flag is now: true";
-  }
-  else if (msg == "REQ_UPDATES_0")
-  {
-    _client.clientsRequestUpdates = false;
-    response += "Your REQ_UPDATES flag is now: false";
-  }
-  else if (msg == "TMODE=0" || msg == "7:TMODE=0")
-  {
-    _client.transmissionMode = TransmissionMode::AllAvailable;
-    response = "Transmission mode set to AllAvailable";
-  }
-  else if (msg == "TMODE=1" || msg == "7:TMODE=1")
-  {
-    _client.transmissionMode = TransmissionMode::SizeColon;
-    response = "Transmission mode set to SizeColon";
-  }
-  else if (msg == "REQ_SENSORS_FILE")
-  {
-    if (is_SPIFFS_mounted)
-    {
-      if (SPIFFS.exists("/sensors.txt"))
-      {
-        if (_client.client != NULL)
-        {
-          String msg = "$";
-          msg += SPIFFS.open("/sensors.txt").size();
-          msg += "$";
-          _client.client->print(msg);
-          _client.client->print(SPIFFS.open("/sensors.txt").readString().c_str());
-        }
-      }
-    }
-  }
-  else if (msg == "REQ_LOG_FILE")
-  {
-    if (is_SPIFFS_mounted)
-    {
-      if (SPIFFS.exists("/log.txt"))
-      {
-        if (_client.client != NULL)
-        {
-          String msg = "$";
-          msg += SPIFFS.open("/log.txt").size();
-          msg += "$";
-          _client.client->print(msg);
-          _client.client->print(SPIFFS.open("/log.txt").readString().c_str());
-        }
-      }
-    }
-  }
-  else if (msg[0] == 'Z') // Client Message (Available to broadcast)
-  {
-    _client.clientsStatus = msg;
-    for (int i = 0; i < MAX_CLIENTS; i++)
-    {
-      if (clients[i].clientsRequestUpdates)
-      {
-        if (NULL != clients[i].client)
-          clients[i].send(msg);
-      }
-    }
-    response += "M;ACK;";
-  }
-  else if (msg[0] == 'A') // Current Variables
-  {
-    response += ("\nCurrent SET_TIMEOUT value is: ");
-    response += (SET_TIMEOUT);
-    response += (" and it is: ");
-    if (DISABLE_TIMEOUT)
-      response += ("Disabled");
-    else
-      response += ("Enabled");
-    response += ("\n");
-  }
-  else if (msg[0] == 'I') // Self-Indentification
-  {
-    for (int i = 1; i < msg.length(); i++)
-    {
-      char c = msg[i];
-      if (c == ';')
-      {
-        i = msg.length();
-      }
-      else
-        _client.clientsID += c;
-    }
-    response += "M;ACK;";
-  }
-  else
-    response += "M;ACK;";
-  return response;
-}
-
-String PrepareMsg(String msg, TransmissionMode mode, String headers)
-{
-  if (mode == TransmissionMode::AllAvailable)
-    return msg; // SendMsg
-  else if (mode == TransmissionMode::SizeColon)
-  {
-    String r_msg = "";
-    r_msg += msg.length();
-    r_msg += ":";
-    r_msg += msg;
-    return r_msg;
-  }
-  else if (mode == TransmissionMode::ThreeCharHeaders)
-  {
-    String r_msg = "";
-    r_msg += TransmissionChar;
-    r_msg += headers;
-    r_msg += msg;
-    return r_msg;
-  }
-  return msg;
-}
-
-void handleTCP()
-{
-  // polls for new clients
-  WiFiClient newClient = wifiServer.available();
-  if (newClient)
-  {
-    Serial.println("new client connected");
-    // Find the first unused space
-    for (int i = 0; i < MAX_CLIENTS; ++i)
-    {
-      if (NULL == clients[i].client)
-      {
-        clients[i].client = new WiFiClient(newClient);
-        Serial.printf("client [");
-        Serial.print(newClient.remoteIP().toString());
-        Serial.printf(":%d] allocated at (%d)\n", newClient.remotePort(), i);
-        clients[i].clientsTimeout = now();
-        clients[i].send("REQ_ID");
-        break;
-      }
-      else if (i == MAX_CLIENTS)
-      {
-#ifdef DEBUG
-        Serial.printf("Could not allocate client [");
-        Serial.print(newClient.remoteIP().toString());
-        Serial.printf(":%d] all (%d) clients spaces are beeing used right now\n", newClient.remotePort(), MAX_CLIENTS);
-#endif
-      }
-    }
-  }
-
-  // Check whether each client has some data
-  for (int i = 0; i < MAX_CLIENTS; ++i)
-  {
-    // If the client is in use, and has some data...
-    if (NULL != clients[i].client && clients[i].client->available())
-    {
-
-      String msg = "";
-      clients[i].clientsTimeout = now();
-      int size = 0;
-      int index = 0;
-      bool sizeFound = false;
-      while (NULL != clients[i].client && clients[i].client->available())
-      {
-        char newChar = clients[i].client->read();
-
-#ifdef FAST_LIGHT_TOGGLE
-        if (newChar == CONTROL_CHAR)
-          Light_Toggle();
-#endif
-
-        if (newChar != (char)19)
-        {
-          if (sizeFound == 0 && newChar == ':' && clients[i].transmissionMode == TransmissionMode::SizeColon)
-          {
-            size = atoi(msg.c_str());
-            sizeFound = true;
-            msg = "";
-            index = 0;
-          }
-          else if (sizeFound == 1 && index >= size && clients[i].transmissionMode == TransmissionMode::SizeColon)
-          {
-            if (msg != "")
-              clients[i].send(HandleMsg(msg, clients[i]));
-            sizeFound = false;
-            msg = "";
-            msg += newChar;
-          }
-          else
-          {
-            index++;
-            msg += newChar;
-          }
-        }
-      }
-      clients[i].send(HandleMsg(msg, clients[i]));
-    }
-    // If a client disconnects, clear the memory for a new one
-    if (NULL != clients[i].client && !clients[i].client->connected())
-    {
-      clients[i].client->stop();
-      delete clients[i].client;
-      clients[i].reset();
-    }
-    // check if any client have been idle and time it out
-    else if (NULL != clients[i].client && clients[i].client->connected())
-    {
-      if ((now() - clients[i].clientsTimeout >= SET_TIMEOUT) and !DISABLE_TIMEOUT)
-      {
-        clients[i].send("E;0x3F;Timedout;");
-#ifdef DEBUG
-        Serial.printf("Client[%d] timeouted\n", i);
-#endif
-        clients[i].client->stop();
-        delete clients[i].client;
-        clients[i].reset();
-      }
-    }
-  }
-}
-
-void BroadcastMessage(String msg)
-{
-  for (int i = 0; i < MAX_CLIENTS; i++)
-  {
-    if (clients[i].clientsRequestUpdates)
-    {
-      if (NULL != clients[i].client)
-        clients[i].send(msg);
-    }
-  }
-}
-
-void updateValues( bool skipUpload = false)
-{
-  int current_time = now();
-
-  if (current_time - last_sensor_update >= sensor_update_interval)
-  {
-
-    DS18.requestTemperatures();
-    last_sensor_update = current_time;
-    DS18inner = DS18.getTempCByIndex(0);
-    DS18Probe = DS18.getTempCByIndex(1);
-
-
-      int totalLDR = 0;
-    for (size_t i = 0; i < 10; i++)
-    {
-      totalLDR += analogRead(LDR_PIN);
-    }
-    LDR_VALUE = totalLDR/10;
-    
-    dht.read();
-
-    DHT11_hum = dht.readHumidity();
-    DHT11_temp = dht.readTemperature();
-
-    if (current_time - last_sensor_log >= sensor_log_interval && !skipUpload)
-    {
-      if (is_SPIFFS_mounted)
-      {
-        String msg = "";
-        // Creates the file if it doest exist
-        if (!SPIFFS.exists("/sensors.txt"))
-        {
-          msg += "Time,TimeTimestamp gmt-03,DS18inner,DS18Probe,WaterLevel,Moisture,DHT_H,DHT_T,LDR";
-          FileWrite("/sensors.txt", msg);
-        }
-        msg = ",";
-        msg += current_time;
-        msg += ",";
-        msg += DS18inner;
-        msg += ",";
-        msg += DHT11_hum;
-        msg += ",";
-        msg += DHT11_temp;
-        msg += ",";
-        msg += LDR_VALUE;
-        msg += ",";
-        FileWrite("/sensors.txt", msg);
-      }
-      last_sensor_log = current_time;
-    }
-
-    
-  }
-
-}
-
-void getTime()
-{
-  Serial.println("Syncing Time Online");
-  HTTPClient http;
-  http.begin("http://worldtimeapi.org/api/timezone/America/Bahia.txt"); // HTTP
-  int httpCode = http.GET();
-  // httpCode will be negative on error
-  if (httpCode > 0)
-  {
-    // HTTP header has been send and Server response header has been handled
-    // file found at server
-    if (httpCode == HTTP_CODE_OK)
-    {
-      Serial.printf("[HTTP] OK... code: %d\n", httpCode);
-      String payload = http.getString();
-      char str[payload.length() + 1];
-      strcpy(str, payload.c_str());
-      char *pch;
-      pch = strtok(str, ":\n");
-      int i = 0;
-      int raw_offset = 0;
-      while (pch != NULL)
-      {
-        i++;
-        if (i == 23)
-        {
-          raw_offset = atoi(pch);
-        }
-        if (i == 27)
-        {
-          setTime(atoi(pch) + raw_offset);
-        }
-        // printf("%d: %s\n", i, pch);
-        pch = strtok(NULL, ":\n");
-      }
-      String msg = "Time Synced ";
-      is_time_synced = true;
-      msg += millis();
-      msg += "ms from boot.";
-    }
-    else
-    {
-      Serial.printf("[HTTP] Error code: %d\n", httpCode);
-    }
-  }
-  else
-  {
-    Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-  }
-  http.end();
-}
-
-void handleLED()
-{
-  int pos = beatsin8(30,0,9,0,0);
-        leds[pos] = CHSV(map(patternIndex,0,maxIndex,currentHue,currentHue +maxIndex),255,127);
-fadeToBlackBy(leds,maxIndex,50);
-    FastLED.show();
-    Serial.println(pos);
-    
-}
-
-
-void LED_Task( void * pvParameters )
-{
-  
-  for(;;){
-    p.run();
-  vTaskDelay(1/portTICK_PERIOD_MS);
-}
-} 
-
-void setup()
-{
-
-  pinMode(ONBOARD_LED_PIN, OUTPUT);
-
-  // Debug console
-  Serial.begin(115200);
-
-  FastLED.addLeds<WS2812, LED_STRIP_PIN, GRB>(leds, LED_STRIP_SIZE);  // GRB ordering is typical
-
-#ifdef USE_SD
-  /*  SPI.begin(14, 2, 15, 13);
-    if (SD.begin(13, SPI))
-      is_SD_mounted = true;
-    Serial.print("SD is: ");
-    Serial.println(is_SD_mounted);
-    */
-  if (SPIFFS.begin(true))
-  {
-    is_SPIFFS_mounted = true;
-  }
-#endif
-
-  WiFi.begin(WIFISSID, WIFIPASSWD);
-  bool createAp = false; // flag for creating an AP in case we can't connect to wifi
-  bool beauty = true;    // Esthetics for Serial.print();
-  WiFi.hostname(DEVICE_NAME);
-  // Try to connect to WiFi
-  int StartMillis = millis();
-  while (WiFi.status() != WL_CONNECTED && !createAp)
-  {
-    if (millis() % 100 == 0 && beauty)
-    {
-      Serial.print(".");
-      beauty = false;
-      leds[0] = CRGB(0xFF * beauty, 0x99 * beauty, 0);
-      leds[1] = CRGB(0xFF * !beauty, 0x99 * !beauty, 0);
-      FastLED.show();
-    }
-    else if (millis() % 100 != 0)
-    {
-      beauty = true;
-    }
-
-    if (millis() - StartMillis > 14999)
-    {
-      Serial.printf("\nNetwork '%s' not found.\n", WIFISSID);
-      createAp = true;
-    }
-  }
-  if (createAp)
-  {
-    fill_solid(leds, 2, 0xFF0000);
-
-    for (size_t i = 0; i < 5; i++)
-    {
-      FastLED.setBrightness(255);
-      FastLED.show();
-      delay(200);
-      FastLED.setBrightness(0);
-      FastLED.show();
-      delay(200);
-    }
-
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(WIFISSID, "");
-    // dnsServer.start(53, "*", WiFi.softAPIP());
-    Serial.println("");
-    Serial.print("Creating WiFi Ap.\n ---SSID:  ");
-    Serial.println(WIFISSID);
-    Serial.print(" --IP address: ");
-    Serial.println(WiFi.softAPIP());
-  }
-  else
-  {
-    fill_solid(leds, 2, 0x00FF00);
-
-    for (size_t i = 0; i < 5; i++)
-    {
-      FastLED.setBrightness(255);
-      FastLED.show();
-      delay(200);
-      FastLED.setBrightness(0);
-      FastLED.show();
-      delay(200);
-    }
-      FastLED.setBrightness(255);
-    int sig = map(WiFi.RSSI(),-35,-90,0,10);
-    fill_solid(leds,10,CHSV(0,255,127));
-    for (size_t i = 0; i < 10; i++)
-    {
-      if (i > sig);     
-      else
-      leds[i] = CRGB::Green;
-      FastLED.show();
-      delay(100);
-    }
-    for (size_t i = 0; i < 5; i++)
-    {
-      FastLED.setBrightness(255);
-      FastLED.show();
-      delay(200);
-      FastLED.setBrightness(0);
-      FastLED.show();
-      delay(200);
-    }
-     
-    
-    Serial.print("Connected to ");
-    Serial.println(WIFISSID);
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-  }
-  FastLED.setBrightness(255);
-  FastLED.clear();
-  FastLED.show();
-  // Try to connect to blynk. don't use Blynk.begin(), it will block the code if you don't have an in ternet connection
-
-  // Stars the OTA
-  ArduinoOTA.setHostname(DEVICE_NAME);
-
-  ArduinoOTA.onStart(startOTA);
-  ArduinoOTA.onEnd(endOTA);
-  ArduinoOTA.onProgress(progressOTA);
-  ArduinoOTA.onError(errorOTA);
-  ArduinoOTA.begin();
-
-  // Starts the TCP server (used for local debug mostly and NightMare integration)
-  wifiServer.begin();
-
-  // Starts the DS18b20 and the DHT sensor.
-  DS18.begin();
-  DS18.setResolution(10);
-  Serial.print("devices: ");
-  Serial.println(DS18.getDeviceCount());
-  for (size_t i = 0; i < DS18.getDeviceCount(); i++)
-  {
-    DeviceAddress aaa;
-    DS18.getAddress(aaa, i);
-    printAddress(aaa);
-    Serial.println();
-  }
-
-  dht.begin();
-  // sensors_hist.Reset();
-  // Sync Time Online
-  getTime();
-
-  // Declare PinModes
-  pinMode(LDR_PIN, INPUT);
-  pinMode(VBAT_PIN, INPUT);
-
-  pinMode(27, OUTPUT); // AKA Pin 33 Enable.
- digitalWrite(5, 0);
-  if (WiFi.isConnected())
-  {
-    digitalWrite(5, 1);
-  }
-
-//Loads the last time pump was automatically trigerred
-  if (is_SPIFFS_mounted)
-  {
-    if (SPIFFS.exists("/lastAutoPump.txt") && is_time_synced)
-    {
-      String j = SPIFFS.open("/lastAutoPump.txt").readString();
-      Last_Auto_Pump = atoi(j.c_str());
-    }
-  }
-
-
-  
-xTaskCreatePinnedToCore(
-                    LED_Task,   // Function to implement the task /
-                    "LED_Task", // Name of the task /
-                    10000,      //* Stack size in words /
-                    NULL,       //* Task input parameter /
-                    32,          //* Priority of the task /
-                    NULL,       //* Task handle. /
-                    1);  //*/
-
-Serial.println("Welcome Mr. Holmes.");
-Serial.println("When you have eliminated the impossible, whatever remains, however improbable, must be the truth.");
-}
-
-void loop()
-{
-  ArduinoOTA.handle();
-  updateValues();
-  handleTCP();
-    EVERY_N_MILLISECONDS(10){
-      p.run();
-    }
-
-}
+LedHandler ledController;
