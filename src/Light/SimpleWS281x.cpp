@@ -1,8 +1,9 @@
 #include "SimpleWS281x.h"
 
-SimpleWS281x::SimpleWS281x(uint8_t pin, size_t ledCount)
+SimpleWS281x::SimpleWS281x(uint8_t pin, size_t ledCount, ColorOrder colorOrder)
     : _pin(pin),
-      _ledCount(ledCount)
+      _ledCount(ledCount),
+      _colorOrder(colorOrder)
 {
 }
 
@@ -70,10 +71,15 @@ void SimpleWS281x::setPixel(
     if (!_pixels || index >= _ledCount)
         return;
 
-    // Keep pixels in logical RGB form. show() applies this strip's BGR wire order.
+    // Keep pixels in logical RGB form. show() applies the configured physical wire order.
     _pixels[index].g = g;
     _pixels[index].r = r;
     _pixels[index].b = b;
+}
+
+void SimpleWS281x::setPixel(size_t index, uint32_t rgb)
+{
+    setPixel(index, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
 }
 
 void SimpleWS281x::setAll(
@@ -88,6 +94,11 @@ void SimpleWS281x::setAll(
     {
         setPixel(i, r, g, b);
     }
+}
+
+void SimpleWS281x::setAll(uint32_t rgb)
+{
+    setAll((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
 }
 
 void SimpleWS281x::clear()
@@ -137,10 +148,40 @@ bool SimpleWS281x::show()
     // would shift the logical indexes on the strip and leave trailing LEDs at their old values.
     for (size_t i = 0; i < _ledCount; ++i)
     {
-        // Measured wire order for the Sherlock strip is BGR.
-        encodeByte(_pixels[i].b, out);
-        encodeByte(_pixels[i].g, out);
-        encodeByte(_pixels[i].r, out);
+        const Pixel &pixel = _pixels[i];
+        switch (_colorOrder)
+        {
+        case ColorOrder::RGB:
+            encodeByte(pixel.r, out);
+            encodeByte(pixel.g, out);
+            encodeByte(pixel.b, out);
+            break;
+        case ColorOrder::RBG:
+            encodeByte(pixel.r, out);
+            encodeByte(pixel.b, out);
+            encodeByte(pixel.g, out);
+            break;
+        case ColorOrder::GRB:
+            encodeByte(pixel.g, out);
+            encodeByte(pixel.r, out);
+            encodeByte(pixel.b, out);
+            break;
+        case ColorOrder::GBR:
+            encodeByte(pixel.g, out);
+            encodeByte(pixel.b, out);
+            encodeByte(pixel.r, out);
+            break;
+        case ColorOrder::BRG:
+            encodeByte(pixel.b, out);
+            encodeByte(pixel.r, out);
+            encodeByte(pixel.g, out);
+            break;
+        case ColorOrder::BGR:
+            encodeByte(pixel.b, out);
+            encodeByte(pixel.g, out);
+            encodeByte(pixel.r, out);
+            break;
+        }
     }
 
     const size_t symbolCount = _ledCount * 24;

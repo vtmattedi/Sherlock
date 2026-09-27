@@ -1,14 +1,31 @@
 #include "LightController.h"
 
+#include <NightMare.h>
 #include <board.h>
 
 namespace
 {
-constexpr uint32_t STRIP_RED = 0x0000FF;
-constexpr uint32_t STRIP_GREEN = 0xFF0000;
-constexpr uint32_t STRIP_BLUE = 0x00FF00;
+constexpr uint32_t STRIP_RED = 0xFF0000;
+constexpr uint32_t STRIP_GREEN = 0x00FF00;
+constexpr uint32_t STRIP_BLUE = 0x0000FF;
 constexpr uint32_t STRIP_YELLOW = STRIP_RED | STRIP_GREEN;
 constexpr uint32_t STRIP_WHITE = 0xFFFFFF;
+
+ManagedState<ColourType> colorState("color");
+ManagedState<uint8_t> brightnessState("brightness");
+
+uint32_t rgbValue(const ColourType &color)
+{
+    const NightMare::RGB rgb = color.toRGB();
+    return (static_cast<uint32_t>(rgb.r) << 16) |
+           (static_cast<uint32_t>(rgb.g) << 8) | rgb.b;
+}
+
+ColourType colourValue(uint32_t color)
+{
+    return ColourType(static_cast<uint8_t>(color >> 16),
+                      static_cast<uint8_t>(color >> 8), static_cast<uint8_t>(color));
+}
 
 struct Zone
 {
@@ -31,7 +48,7 @@ uint8_t scaleChannel(uint8_t value, uint8_t brightness)
 LightController gLight;
 
 LightController::LightController()
-    : strip_(LED_STRIP_PIN, LED_STRIP_SIZE)
+    : strip_(LED_STRIP_PIN, LED_STRIP_SIZE, ColorOrder::GRB)
 {
 }
 
@@ -48,14 +65,35 @@ bool LightController::begin()
     return true;
 }
 
+bool LightController::bindResources()
+{
+    colorState.onWrite = [](ManagedState<ColourType> &, const ColourType &requested) {
+        gLight.updateColor(rgbValue(requested), false);
+        return true;
+    };
+    brightnessState.onWrite = [](ManagedState<uint8_t> &, const uint8_t &requested) {
+        gLight.updateBrightness(requested, false);
+        return true;
+    };
+
+    bool ok = gResourcesManager.bindResource(&colorState);
+    ok = gResourcesManager.bindResource(&brightnessState) && ok;
+    resourcesBound_ = ok;
+    if (!ok)
+        return false;
+
+    colorState.setValue(colourValue(state_.color));
+    brightnessState.setValue(state_.brightness);
+    return true;
+}
+
 void LightController::setPixelLocked(size_t index, uint32_t color, uint8_t brightness)
 {
-    // Measured packed format: 0xGGBBRR.
-    const uint8_t red = color & 0xFF;
-    const uint8_t blue = (color >> 8) & 0xFF;
-    const uint8_t green = (color >> 16) & 0xFF;
-    strip_.setPixel(index, scaleChannel(red, brightness), scaleChannel(green, brightness),
-                    scaleChannel(blue, brightness));
+    const uint8_t red = scaleChannel((color >> 16) & 0xFF, brightness);
+    const uint8_t green = scaleChannel((color >> 8) & 0xFF, brightness);
+    const uint8_t blue = scaleChannel(color & 0xFF, brightness);
+    strip_.setPixel(index, (static_cast<uint32_t>(red) << 16) |
+                               (static_cast<uint32_t>(green) << 8) | blue);
 }
 
 void LightController::fillVisibleLocked(uint32_t color, uint8_t brightness)
@@ -92,22 +130,53 @@ void LightController::renderLocked()
 
 void LightController::setColor(uint32_t color)
 {
+    updateColor(color, true);
+}
+
+void LightController::setColor(const ColourType &color)
+{
+    updateColor(rgbValue(color), true);
+}
+
+void LightController::updateColor(uint32_t color, bool publish)
+{
     if (!started_)
         return;
+    color &= 0xFFFFFF;
     xSemaphoreTake(mutex_, portMAX_DELAY);
-    state_.color = color & 0xFFFFFF;
-    renderLocked();
+    const bool changed = state_.color != color;
+    if (changed)
+    {
+        state_.color = color;
+        renderLocked();
+    }
     xSemaphoreGive(mutex_);
+
+    const ColourType published = colourValue(color);
+    if (publish && resourcesBound_ && colorState.getValue() != published)
+        colorState.setValue(published);
 }
 
 void LightController::setBrightness(uint8_t brightness)
 {
+    updateBrightness(brightness, true);
+}
+
+void LightController::updateBrightness(uint8_t brightness, bool publish)
+{
     if (!started_)
         return;
     xSemaphoreTake(mutex_, portMAX_DELAY);
-    state_.brightness = brightness;
-    renderLocked();
+    const bool changed = state_.brightness != brightness;
+    if (changed)
+    {
+        state_.brightness = brightness;
+        renderLocked();
+    }
     xSemaphoreGive(mutex_);
+
+    if (publish && resourcesBound_ && brightnessState.getValue() != brightness)
+        brightnessState.setValue(brightness);
 }
 
 void LightController::setOn(bool on)

@@ -4,11 +4,16 @@
 
 #include "SimpleWS281x.h"
 
+class ColourType;
+
+constexpr uint32_t DEFAULT_COLOR = 0xFFFF00; // Yellow in standard 0xRRGGBB order.
+constexpr uint8_t DEFAULT_BRIGHTNESS = 127;
+
 struct LightState
 {
     bool on = true;
-    uint32_t color = 0xFF00FF; // Yellow in the strip's measured R/B/G packed order.
-    uint8_t brightness = 127;
+    uint32_t color = DEFAULT_COLOR;
+    uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t openDrawers = 0;
 };
 
@@ -17,8 +22,10 @@ class LightController
 public:
     LightController();
     bool begin();
+    bool bindResources();
 
     void setColor(uint32_t color);
+    void setColor(const ColourType &color);
     void setBrightness(uint8_t brightness);
     void setOn(bool on);
     bool toggle();
@@ -40,7 +47,10 @@ private:
     LightState state_;
     bool drawersEnabled_ = true;
     bool started_ = false;
+    bool resourcesBound_ = false;
 
+    void updateColor(uint32_t color, bool publish);
+    void updateBrightness(uint8_t brightness, bool publish);
     void renderLocked();
     void fillVisibleLocked(uint32_t color, uint8_t brightness);
     void setPixelLocked(size_t index, uint32_t color, uint8_t brightness);
