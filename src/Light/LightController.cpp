@@ -105,6 +105,9 @@ void LightController::fillVisibleLocked(uint32_t color, uint8_t brightness)
 
 void LightController::renderLocked()
 {
+    if (otaActive_)
+        return;
+
     strip_.clear();
 
     if (drawersEnabled_ && state_.openDrawers != 0)
@@ -274,6 +277,7 @@ void LightController::showOtaProgress(uint8_t percent)
         return;
     percent = min(percent, static_cast<uint8_t>(100));
     xSemaphoreTake(mutex_, portMAX_DELAY);
+    otaActive_ = true;
     strip_.clear();
     const size_t visibleCount = LED_STRIP_SIZE - LED_STRIP_FIRST;
     const size_t completed = (visibleCount * percent + 99) / 100;
@@ -288,7 +292,10 @@ void LightController::showOtaFailure()
     if (!started_)
         return;
     xSemaphoreTake(mutex_, portMAX_DELAY);
+    otaActive_ = true;
     blinkLocked(STRIP_RED, 2);
+    otaActive_ = false;
+    renderLocked();
     xSemaphoreGive(mutex_);
 }
 
@@ -297,6 +304,7 @@ void LightController::showOtaSuccess()
     if (!started_)
         return;
     xSemaphoreTake(mutex_, portMAX_DELAY);
+    otaActive_ = true;
     showStatusLocked(STRIP_GREEN);
     xSemaphoreGive(mutex_);
 }

@@ -23,7 +23,7 @@ namespace
 
     // Config<T> values are runtime configuration declarations. Automatic control is disabled by
     // default, while drawer handling is enabled.
-    Config<TimeType> autoShowTime("autos:show:time", TimeType(18, 0));
+    Config<TimeType> autoShowTime("auto:show:time", TimeType(18, 0));
     Config<ColourType> autoShowColor("auto:show:color", ColourType(255, 255, 0));
     Config<TimeType> autoHideTime("auto:hide:time", TimeType(6, 0));
     Config<bool> autoEnabled("auto:enable", false);
