@@ -299,13 +299,28 @@ void setup()
     gScheduler.everyMonotonic("voltage_input", readVoltageInput, voltageInputPeriod.value());
     voltageInputPeriod.onWrite = [](Config<int> &config, const int &requested)
     {
-        if (requested < 5 || requested > 60000)
+        if (requested > 60000)
             return false;
+        bool enable = requested > 0;
         bool ok = gScheduler.remove("voltage_input");
         if (!ok)
         {
             LOG_ERROR("Sherlock", "failed to remove voltage_input job for period change");
             return false;
+        }
+        if (!enable)
+        {
+            gResourcesManager.unbindResource(&mvInput);
+            return true;
+        }
+        if (!mvInput.isBound())
+        {
+            bool ok = gResourcesManager.bindResource(&mvInput);
+            if (!ok)
+            {
+                LOG_ERROR("Sherlock", "failed to bind voltage_input resource for period change");
+                return false;
+            }
         }
         ok = gScheduler.everyMonotonic("voltage_input", readVoltageInput, requested);
         if (!ok)
