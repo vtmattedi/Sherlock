@@ -48,6 +48,7 @@ private:
     bool drawersEnabled_ = true;
     bool started_ = false;
     bool resourcesBound_ = false;
+    bool otaActive_ = false;
 
     void updateColor(uint32_t color, bool publish);
     void updateBrightness(uint8_t brightness, bool publish);
