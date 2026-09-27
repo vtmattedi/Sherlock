@@ -27,16 +27,30 @@ enum Color : uint32_t
     COLOR_DARK_GRAY = 0x404040,
     COLOR_LIGHT_GRAY = 0xC0C0C0,
 };
+enum class ColorOrder
+{
+    RGB,
+    RBG,
+    GRB,
+    GBR,
+    BRG,
+    BGR,
+};
+
 class SimpleWS281x
 {
 public:
-    SimpleWS281x(uint8_t pin, size_t ledCount);
+    SimpleWS281x(uint8_t pin, size_t ledCount, ColorOrder colorOrder = ColorOrder::RGB);
     ~SimpleWS281x();
 
     bool begin();
 
     void setPixel(size_t index, uint8_t r, uint8_t g, uint8_t b);
+    /// @param rgb Logical colour packed as 0xRRGGBB. The driver applies the physical wire order.
+    void setPixel(size_t index, uint32_t rgb);
     void setAll(uint8_t r, uint8_t g, uint8_t b);
+    /// @param rgb Logical colour packed as 0xRRGGBB. The driver applies the physical wire order.
+    void setAll(uint32_t rgb);
     void clear();
 
     bool show();
@@ -56,7 +70,7 @@ private:
 
     uint8_t _pin;
     size_t _ledCount;
-
+    ColorOrder _colorOrder;
     Pixel* _pixels = nullptr;
     rmt_data_t* _symbols = nullptr;
 

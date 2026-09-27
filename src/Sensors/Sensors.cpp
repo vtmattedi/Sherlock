@@ -43,11 +43,14 @@ namespace
 
     bool readDrawer(uint8_t i)
     {
-        #define threshhold 5
-        int sum = 0;
-        for (uint8_t j = 0; j < 10; j++)
-            sum += readDrawer(i);
-        return sum > threshhold;
+        constexpr uint8_t sampleCount = 10;
+        constexpr uint8_t highThreshold = 5;
+
+        uint8_t highSamples = 0;
+        for (uint8_t j = 0; j < sampleCount; j++)
+            highSamples += digitalRead(DrawerPins[i]) == HIGH;
+
+        return highSamples > highThreshold ? HIGH : LOW;
     }
 
     uint8_t openMask()
