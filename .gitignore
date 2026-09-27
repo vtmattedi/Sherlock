@@ -4,3 +4,6 @@
 .vscode/launch.json
 .vscode/ipch
 /include/Creds
+creds.h
+include/Version.h
+src/Version/.version_no_increment
