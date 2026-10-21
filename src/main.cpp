@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <NightMare.h>
 #include <board.h>
 
@@ -8,11 +7,6 @@
 
 namespace
 {
-    static const ActionArgMetadata SetArgs[] = {
-        {"on", NetValueType::BOOLEAN, false},
-    };
-    ManagedAction setAction("set", SetArgs);
-
     ManagedSensor<float> temperature("temperature");
     ManagedSensor<float> dhtTemperature("dht_temperature");
     ManagedSensor<float> dhtHumidity("dht_humidity");
@@ -27,72 +21,10 @@ namespace
     Config<ColourType> autoShowColor("auto:show:color", ColourType(255, 255, 0));
     Config<TimeType> autoHideTime("auto:hide:time", TimeType(6, 0));
     Config<bool> autoEnabled("auto:enable", false);
-    Config<bool> drawersEnabled("drawers:enable", true);
+  
 
     volatile bool configsDirty = true;
     volatile uint32_t configsChangedMs = 0;
-
-    bool parsePowerRequest(const String &payload, bool &hasValue, bool &on)
-    {
-        String text = payload;
-        text.trim();
-        if (text.length() == 0)
-        {
-            hasValue = false;
-            return true;
-        }
-
-        JsonDocument document;
-        if (!deserializeJson(document, text) && document.is<JsonObject>())
-        {
-            JsonVariantConst value = document["on"];
-            if (value.isNull())
-            {
-                hasValue = false;
-                return document.as<JsonObjectConst>().size() == 0;
-            }
-            if (!value.is<bool>())
-                return false;
-            hasValue = true;
-            on = value.as<bool>();
-            return true;
-        }
-
-        text.toLowerCase();
-        if (text == "toggle")
-        {
-            hasValue = false;
-            return true;
-        }
-        if (text == "on" || text == "true" || text == "1")
-        {
-            hasValue = true;
-            on = true;
-            return true;
-        }
-        if (text == "off" || text == "false" || text == "0")
-        {
-            hasValue = true;
-            on = false;
-            return true;
-        }
-        return false;
-    }
-
-    ActionResult onSet(ManagedAction &, const String &payload)
-    {
-        bool hasValue = false;
-        bool on = false;
-        if (!parsePowerRequest(payload, hasValue, on))
-            return {false, "expected no payload, on/off, or {\"on\":true|false}"};
-
-        if (hasValue)
-            gLight.setOn(on);
-        else
-            on = gLight.toggle();
-
-        return {true, on ? "ON" : "OFF"};
-    }
 
     bool onConfigChange(const String &key, const String &rawValue)
     {
@@ -109,10 +41,7 @@ namespace
 
     bool bindResources()
     {
-        setAction.onInvoke = onSet;
-
         bool ok = gLight.bindResources();
-        ok = gResourcesManager.bindResource(&setAction) && ok;
         ok = gResourcesManager.bindResource(&temperature) && ok;
         ok = gResourcesManager.bindResource(&dhtTemperature) && ok;
         ok = gResourcesManager.bindResource(&dhtHumidity) && ok;

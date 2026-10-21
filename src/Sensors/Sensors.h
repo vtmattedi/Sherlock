@@ -1,6 +1,6 @@
 #pragma once
 #include <Arduino.h>
-
+#include <NightMare.h>
 // DS18B20, DHT11 and one digital sensor/switch on each drawer.
 //
 // Sensors_begin() starts one sampling task; everything else is a thread-safe read of what it last
@@ -34,3 +34,5 @@ bool Sensors_drawerMonitored(uint8_t index);
 /// @brief The last raw digital level of a drawer (LOW or HIGH).
 uint16_t Sensors_drawerRaw(uint8_t index);
 bool Sensors_ds18Connected();
+
+extern Config<bool> drawersEnabled;

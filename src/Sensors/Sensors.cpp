@@ -11,7 +11,7 @@
 #define SENSORS_TASK_STACK 4096
 #define SENSORS_TASK_PRIORITY 1
 #define SENSORS_TASK_CORE 0
-
+Config<bool> drawersEnabled("drawers:enable", true);
 namespace
 {
     const int8_t DrawerPins[DRAWER_COUNT] = {DRAWER_1_PIN, DRAWER_2_PIN};
@@ -87,6 +87,8 @@ namespace
 
     void sampleDrawers()
     {
+        if (drawersEnabled.value() == false)
+            return;
         bool changed = false;
         for (uint8_t i = 0; i < DRAWER_COUNT; i++)
         {

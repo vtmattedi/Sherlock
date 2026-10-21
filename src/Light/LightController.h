@@ -52,6 +52,7 @@ private:
 
     void updateColor(uint32_t color, bool publish);
     void updateBrightness(uint8_t brightness, bool publish);
+    void updateOn(bool on, bool publish);
     void renderLocked();
     void fillVisibleLocked(uint32_t color, uint8_t brightness);
     void setPixelLocked(size_t index, uint32_t color, uint8_t brightness);

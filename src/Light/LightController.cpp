@@ -11,8 +11,10 @@ constexpr uint32_t STRIP_BLUE = 0x0000FF;
 constexpr uint32_t STRIP_YELLOW = STRIP_RED | STRIP_GREEN;
 constexpr uint32_t STRIP_WHITE = 0xFFFFFF;
 
-ManagedState<ColourType> colorState("color");
-ManagedState<uint8_t> brightnessState("brightness");
+
+ManagedState<ColourType> colorState("led:color");
+ManagedState<uint8_t> brightnessState("led:brightness");
+ManagedState<bool> onState("led:power");
 
 uint32_t rgbValue(const ColourType &color)
 {
@@ -75,15 +77,21 @@ bool LightController::bindResources()
         gLight.updateBrightness(requested, false);
         return true;
     };
+    onState.onWrite = [](ManagedState<bool> &, const bool &requested) {
+        gLight.updateOn(requested, false);
+        return true;
+    };
 
     bool ok = gResourcesManager.bindResource(&colorState);
     ok = gResourcesManager.bindResource(&brightnessState) && ok;
+    ok = gResourcesManager.bindResource(&onState) && ok;
     resourcesBound_ = ok;
     if (!ok)
         return false;
 
     colorState.setValue(colourValue(state_.color));
     brightnessState.setValue(state_.brightness);
+    onState.setValue(state_.on);
     return true;
 }
 
@@ -184,12 +192,24 @@ void LightController::updateBrightness(uint8_t brightness, bool publish)
 
 void LightController::setOn(bool on)
 {
+    updateOn(on, true);
+}
+
+void LightController::updateOn(bool on, bool publish)
+{
     if (!started_)
         return;
     xSemaphoreTake(mutex_, portMAX_DELAY);
-    state_.on = on;
-    renderLocked();
+    const bool changed = state_.on != on;
+    if (changed)
+    {
+        state_.on = on;
+        renderLocked();
+    }
     xSemaphoreGive(mutex_);
+
+    if (publish && resourcesBound_ && onState.getValue() != on)
+        onState.setValue(on);
 }
 
 bool LightController::toggle()
@@ -201,6 +221,9 @@ bool LightController::toggle()
     const bool on = state_.on;
     renderLocked();
     xSemaphoreGive(mutex_);
+
+    if (resourcesBound_ && onState.getValue() != on)
+        onState.setValue(on);
     return on;
 }
 
