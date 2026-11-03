@@ -5,5 +5,8 @@
 .vscode/ipch
 /include/Creds
 creds.h
+.env
+.env.*
+!.env.example
 include/Version.h
 src/Version/.version_no_increment

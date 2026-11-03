@@ -26,7 +26,7 @@ namespace
     volatile bool configsDirty = true;
     volatile uint32_t configsChangedMs = 0;
 
-    bool onConfigChange(const String &key, const String &rawValue)
+    bool onConfigChange(const std::string &key, const std::string &rawValue)
     {
         if (key == "auto:show:color")
         {
