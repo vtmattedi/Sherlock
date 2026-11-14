@@ -11,10 +11,12 @@
 #define SENSORS_TASK_STACK 4096
 #define SENSORS_TASK_PRIORITY 1
 #define SENSORS_TASK_CORE 0
+#if DRAWERS_ENABLED
 Config<bool> drawersEnabled("drawers:enable", true);
+#endif
 namespace
 {
-    const int8_t DrawerPins[DRAWER_COUNT] = {DRAWER_1_PIN, DRAWER_2_PIN};
+    const int8_t DrawerPins[DRAWER_COUNT] = {DRAWER_1_PIN, DRAWER_2_PIN, DRAWER_3_PIN};
 
     OneWire oneWire(ONE_WIRE_BUS);
     DallasTemperature ds18(&oneWire);
@@ -64,6 +66,9 @@ namespace
     void publishDrawers()
     {
         const uint8_t mask = openMask();
+        LOG("Sensors", "drawers open mask=0x%02X raw=[%u,%u,%u] (open level=%d)", mask,
+            (unsigned)rawLevels[0], (unsigned)rawLevels[1], (unsigned)rawLevels[2],
+            (int)DRAWER_OPEN_LEVEL);
         {
             Lock lock;
             shared.openDrawers = mask;
@@ -87,6 +92,9 @@ namespace
 
     void sampleDrawers()
     {
+#if !DRAWERS_ENABLED
+        return;
+#else
         if (drawersEnabled.value() == false)
             return;
         bool changed = false;
@@ -110,6 +118,7 @@ namespace
         }
         if (changed)
             publishDrawers();
+#endif
     }
 
     void sampleClimate()
@@ -185,9 +194,11 @@ bool Sensors_begin()
     for (uint8_t i = 0; i < DRAWER_COUNT; i++)
     {
         if (DrawerPins[i] >= 0)
-            pinMode(DrawerPins[i], INPUT);
+            pinMode(DrawerPins[i], DRAWER_INPUT_MODE);
     }
+#if DRAWERS_ENABLED
     primeDrawers();
+#endif
 
     if (xTaskCreatePinnedToCore(run, "sensors", SENSORS_TASK_STACK, nullptr, SENSORS_TASK_PRIORITY,
                                 &task, SENSORS_TASK_CORE) != pdPASS)

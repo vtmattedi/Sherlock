@@ -10,10 +10,18 @@ namespace
     ManagedSensor<float> temperature("temperature");
     ManagedSensor<float> dhtTemperature("dht_temperature");
     ManagedSensor<float> dhtHumidity("dht_humidity");
+#if DRAWERS_ENABLED
     ManagedSensor<bool> drawers[DRAWER_COUNT] = {
         ManagedSensor<bool>("drawer_1"),
         ManagedSensor<bool>("drawer_2"),
+        ManagedSensor<bool>("drawer_3"),
     };
+#endif
+
+    // Diagnostic: raw pin levels before debounce/polarity, bit i = drawer i reads HIGH.
+#if DRAWERS_ENABLED
+    ManagedSensor<uint8_t> drawerRaw("drawer_raw");
+#endif
 
     // Config<T> values are runtime configuration declarations. Automatic control is disabled by
     // default, while drawer handling is enabled.
@@ -22,6 +30,10 @@ namespace
     Config<TimeType> autoHideTime("auto:hide:time", TimeType(6, 0));
     Config<bool> autoEnabled("auto:enable", false);
   
+
+    // Library default is MQTT-first. Prefer ESP-NOW once per device so MQTT stays the fallback, and
+    // a later `CONFIG SET` of the preferred connection is respected.
+    Config<bool> espNowPreferred("net:espnow:preferred_set", false);
 
     volatile bool configsDirty = true;
     volatile uint32_t configsChangedMs = 0;
@@ -45,8 +57,11 @@ namespace
         ok = gResourcesManager.bindResource(&temperature) && ok;
         ok = gResourcesManager.bindResource(&dhtTemperature) && ok;
         ok = gResourcesManager.bindResource(&dhtHumidity) && ok;
+#if DRAWERS_ENABLED
         for (uint8_t i = 0; i < DRAWER_COUNT; ++i)
             ok = gResourcesManager.bindResource(&drawers[i]) && ok;
+        ok = gResourcesManager.bindResource(&drawerRaw) && ok;
+#endif
         return ok;
     }
 
@@ -65,7 +80,9 @@ namespace
         static bool temperatureInitialized;
         static bool dhtTemperatureInitialized;
         static bool dhtHumidityInitialized;
+#if DRAWERS_ENABLED
         static bool drawerInitialized[DRAWER_COUNT];
+#endif
         if (readings.temperatureValid)
             setIfChanged(temperature, temperatureInitialized, readings.temperature);
         if (readings.dhtValid)
@@ -73,9 +90,16 @@ namespace
             setIfChanged(dhtTemperature, dhtTemperatureInitialized, readings.dhtTemperature);
             setIfChanged(dhtHumidity, dhtHumidityInitialized, readings.dhtHumidity);
         }
+#if DRAWERS_ENABLED
+        static bool rawInitialized;
+        uint8_t raw = 0;
+        for (uint8_t i = 0; i < DRAWER_COUNT; ++i)
+            raw |= (Sensors_drawerRaw(i) == HIGH ? 1u : 0u) << i;
+        setIfChanged(drawerRaw, rawInitialized, raw);
         for (uint8_t i = 0; i < DRAWER_COUNT; ++i)
             setIfChanged(drawers[i], drawerInitialized[i],
                          static_cast<bool>(readings.openDrawers & (1u << i)));
+#endif
     }
 
     uint16_t minutesOfDay(const TimeType &time)
@@ -135,7 +159,9 @@ namespace
         if (!immediate && millis() - configsChangedMs < 20)
             return;
         configsDirty = false;
+#if DRAWERS_ENABLED
         gLight.setDrawersEnabled(drawersEnabled.value());
+#endif
         runAutomation(true);
     }
 
@@ -224,6 +250,9 @@ void setup()
     bool ok = gResourcesManager.bindResource(&mvInput);
     LOG("Sherlock", "Millivolt input resource setup: %s", OK_LOG(ok));
     startNightMareESP();
+    if (!espNowPreferred.value() &&
+        NightMare::SelectConnection(NightMare::ConnectionType::ESP_NOW))
+        espNowPreferred.set(true);
     gLight.showStartup();
     gScheduler.everyMonotonic("voltage_input", readVoltageInput, voltageInputPeriod.value());
     voltageInputPeriod.onWrite = [](Config<int> &config, const int &requested)

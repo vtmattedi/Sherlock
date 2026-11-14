@@ -11,7 +11,7 @@ namespace NMHardware
  * Sherlock physical topology (hardware configuration v2).
  *
  * The host assembly "main" is the ESP32-S3 on the mw-overnight v1.0 board, which also carries the
- * DS18B20 and the DHT11. The WS2812 strip and the TCRT5000 drawer sensors are separate physical
+ * DS18B20 and the DHT11. The WS2812 strip and the magnetic door/window contacts are separate physical
  * units wired to the board, so each is its own root assembly and every wire that leaves the board
  * goes contact-to-contact through a connector.
  *
@@ -55,13 +55,13 @@ inline Profile projectProfile()
     static const Connector mainConnectors[] = {
         {"j_led", ledContacts, 1, "LED strip", ConnectorKind::Generic},
 #if DRAWER_1_PIN >= 0
-        {"j_drawer_1", drawerContacts, 1, "Drawer 1 sensor", ConnectorKind::Generic},
+        {"j_drawer_1", drawerContacts, 1, "Drawer 1 contact", ConnectorKind::Generic},
 #endif
 #if DRAWER_2_PIN >= 0
-        {"j_drawer_2", drawerContacts, 1, "Drawer 2 sensor", ConnectorKind::Generic},
+        {"j_drawer_2", drawerContacts, 1, "Drawer 2 contact", ConnectorKind::Generic},
 #endif
 #if DRAWER_3_PIN >= 0
-        {"j_drawer_3", drawerContacts, 1, "Drawer 3 sensor", ConnectorKind::Generic},
+        {"j_drawer_3", drawerContacts, 1, "Drawer 3 contact", ConnectorKind::Generic},
 #endif
     };
 
@@ -98,13 +98,13 @@ inline Profile projectProfile()
          {"", EndpointKind::ConnectorContact, "lead", "DIN"}},
     };
 
-    /* ---- TCRT5000 drawer sensor (one definition, one instance per drawer) ------------------ */
+    /* ---- Magnetic contact (one definition, one instance per door/window) ----- */
 
     static const Terminal sensorTerminals[] = {{"DO"}};
     static const Device sensorDevices[] = {
-        {"sensor", sensorTerminals, 1, "Reflective sensor", "sensor", "TCRT5000"}};
+        {"sensor", sensorTerminals, 1, "Magnetic contact", "sensor", "Reed switch"}};
     static const Connector sensorConnectors[] = {
-        {"lead", drawerContacts, 1, "Sensor lead", ConnectorKind::DirectWire}};
+        {"lead", drawerContacts, 1, "Contact lead", ConnectorKind::DirectWire}};
     static const Connection sensorConnections[] = {
         {{"", EndpointKind::DeviceTerminal, "sensor", "DO"},
          {"", EndpointKind::ConnectorContact, "lead", "DO"}},
@@ -118,7 +118,7 @@ inline Profile projectProfile()
           mainConnections, sizeof(mainConnections) / sizeof(mainConnections[0])}},
         {"ws2812-strip", AssemblyKind::External, "WS2812 LED strip", "WS2812", nullptr,
          {nullptr, 0, stripDevices, 1, stripConnectors, 1, stripConnections, 1}},
-        {"tcrt5000-module", AssemblyKind::Module, "TCRT5000 sensor module", "TCRT5000", nullptr,
+        {"magnetic-contact", AssemblyKind::Module, "Magnetic contact", "Reed switch", nullptr,
          {nullptr, 0, sensorDevices, 1, sensorConnectors, 1, sensorConnections, 1}},
     };
 
@@ -126,13 +126,13 @@ inline Profile projectProfile()
         {"main", "mw-overnight-v1", "Main board"},
         {"led_strip", "ws2812-strip", "LED strip"},
 #if DRAWER_1_PIN >= 0
-        {"drawer_1", "tcrt5000-module", "Drawer 1 sensor"},
+        {"drawer_1", "magnetic-contact", "Drawer 1 contact"},
 #endif
 #if DRAWER_2_PIN >= 0
-        {"drawer_2", "tcrt5000-module", "Drawer 2 sensor"},
+        {"drawer_2", "magnetic-contact", "Drawer 2 contact"},
 #endif
 #if DRAWER_3_PIN >= 0
-        {"drawer_3", "tcrt5000-module", "Drawer 3 sensor"},
+        {"drawer_3", "magnetic-contact", "Drawer 3 contact"},
 #endif
     };
 

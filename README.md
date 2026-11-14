@@ -1,8 +1,8 @@
 # Sherlock
 
 NightMare lighting and sensor firmware for the **mw-overnight v1.0** board.
-Sherlock controls a WS2812 strip, highlights open drawer handles, and publishes
-temperature, humidity, drawer state and board voltage over Wi-Fi/MQTT.
+Sherlock controls a WS2812 strip, highlights open doors/windows at the drawer handles, and publishes
+temperature, humidity, contact state and board voltage through ESP-NOW (Holmes gateway) with MQTT as fallback.
 
 ## Hardware
 
@@ -16,10 +16,14 @@ the current firmware. Confirm the physical MCU before changing the target.
 | DS18B20 temperature sensor | GPIO16 |
 | DHT11 temperature/humidity sensor | GPIO17 |
 | WS2812 data, GRB order | GPIO18; 133 pixels, visible range 35-132 |
-| Drawer 1 digital sensor | GPIO26; HIGH means open |
-| Drawer 2 digital sensor | GPIO27; HIGH means open |
-| Drawer 3 | No sensor configured (`-1`); not published |
+| Drawer 1 magnetic contact | GPIO26; internal pull-up, HIGH means open |
+| Drawer 2 magnetic contact | GPIO27; internal pull-up, HIGH means open |
+| Drawer 3 magnetic contact | GPIO23; internal pull-up, HIGH means open |
 | Board-voltage ADC | GPIO35; 3.9 kohm / 1 kohm divider, calibration 0.9923 |
+
+**Drawers are currently disabled** (`DRAWERS_ENABLED 0` in `include/board.h`): the three contacts below are
+not configured, sampled or published, and the `drawer_*` resources and `drawers:enable` config do not
+exist. Set it to 1 to bring them back.
 
 Pin assignments and strip geometry live in [include/board.h](include/board.h).
 The voltage input is defined in [src/main.cpp](src/main.cpp).
@@ -54,11 +58,19 @@ at the corresponding `/set` topic. `<device>` is the configured/adopted identity
 | `temperature` | Float sensor | DS18B20 temperature in Celsius |
 | `dht_temperature` | Float sensor | DHT11 temperature in Celsius |
 | `dht_humidity` | Float sensor | Relative humidity in percent |
-| `drawer_1`, `drawer_2` | Boolean sensors | True means open |
+| `drawer_1`, `drawer_2`, `drawer_3` | Boolean sensors | True means open |
 | `Board Voltage` | Float sensor | Divider-corrected supply voltage in volts |
 
 NightMareNetwork also provides device discovery, manifests, configuration,
 telemetry and its serial/MQTT console.
+
+## Network transport
+
+ESP-NOW through the Holmes gateway is preferred; Wi-Fi/MQTT stays enabled and carries
+traffic whenever no authenticated gateway session exists, returning to ESP-NOW once one does.
+On first boot after this change the device sets its preferred connection to ESP-NOW once
+(`net:espnow:preferred_set`); a later `CONFIG SET` of the preference is respected. Both
+transports need `NM_ESPNOW_PSK` (same key as Holmes) and the MQTT entries in `creds.h`.
 
 ## Runtime configuration
 

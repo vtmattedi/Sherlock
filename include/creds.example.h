@@ -32,6 +32,9 @@
     "...paste the certificate body here, one escaped line per line...\n" \
     "-----END CERTIFICATE-----\n"
 
+// ESP-NOW network key (16 to 64 characters), identical on the Holmes gateway and every device.
+#define NM_ESPNOW_PSK "change-me-16-to-64-chars"
+
 // WiFi credentials used until others are stored with the WIFI command.
 #define DEFAULT_SSID "your-ssid"
 #define DEFAULT_PASSWORD "your-wifi-password"

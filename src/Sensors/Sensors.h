@@ -1,7 +1,8 @@
 #pragma once
 #include <Arduino.h>
 #include <NightMare.h>
-// DS18B20, DHT11 and one digital sensor/switch on each drawer.
+#include <board.h>
+// DS18B20, DHT11 and one magnetic contact (digital input) on each door/window.
 //
 // Sensors_begin() starts one sampling task; everything else is a thread-safe read of what it last
 // measured. The drawers are sampled fast, debounced, and reported through a callback so the light
@@ -35,4 +36,6 @@ bool Sensors_drawerMonitored(uint8_t index);
 uint16_t Sensors_drawerRaw(uint8_t index);
 bool Sensors_ds18Connected();
 
+#if DRAWERS_ENABLED
 extern Config<bool> drawersEnabled;
+#endif

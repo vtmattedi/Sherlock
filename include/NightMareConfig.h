@@ -16,6 +16,9 @@
 #define NM_ENABLE_CONSOLE 1
 #define NM_ENABLE_WIFI 1
 #define NM_ENABLE_MQTT 1
+// ESP-NOW through the Holmes gateway is the preferred transport; MQTT over Wi-Fi stays enabled and
+// takes over whenever no gateway session is up. Needs NM_ESPNOW_PSK in creds.h.
+#define NM_NETWORK_ESPNOW 1
 #define NM_ENABLE_TELEMETRY 1
 #define NM_ENABLE_SCHEDULER 1
 #define NM_ENABLE_JOBS 1
